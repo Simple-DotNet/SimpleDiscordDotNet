@@ -16,12 +16,13 @@
         <PackageId>SimpleDiscordDotNet</PackageId>
         <Title>SimpleDiscordNet</Title>
         <Authors>SimpleDiscordNet Contributors</Authors>
-        <Description>A tiny, dependency-free Discord bot SDK for .NET 10 with enterprise-grade rate limiting, slash commands, components, modals, and full AOT compatibility.</Description>
+        <Description>A tiny, dependency-free Discord bot SDK for .NET 10 with enterprise-grade rate limiting, slash commands, components, modals, and full AOT compatibility.
+        Join our community on Discord: https://discord.gg/2KrUPCgh</Description>
         <PackageTags>discord;bot;api;gateway;rest;slash-commands;discord-bot;aot;native-aot;trimming;rate-limiting</PackageTags>
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/SimpleDiscordNet/SimpleDiscordNet</RepositoryUrl>
+        <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageReleaseNotes>v1.5.0: Added missing Discord gateway events (InteractionCreated, GuildEmojisUpdated, VoiceStateUpdated, PresenceUpdated, TypingStarted, WebhooksUpdated, InviteCreated, InviteDeleted, GuildIntegrationsUpdated). All events are now exposed via DiscordEvents static class.</PackageReleaseNotes>
 

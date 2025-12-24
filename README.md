@@ -102,6 +102,10 @@ Install-Package SimpleDiscordDotNet
 
 Issues and pull requests are welcome! Please keep the code dependency-free and aligned with the existing style.
 
+## Community
+
+Join our Discord community for support, discussions, and updates: https://discord.gg/2KrUPCgh
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for details.

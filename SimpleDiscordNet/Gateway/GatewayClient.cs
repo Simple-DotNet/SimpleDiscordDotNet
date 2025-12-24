@@ -41,32 +41,59 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
     public event EventHandler<DiscordGuild>? GuildUpdate;
     public event EventHandler<ulong>? GuildDelete; // guild id
     public event EventHandler<GuildEmojisUpdateEvent>? GuildEmojisUpdate;
+    #pragma warning disable CS0067
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<VoiceStateUpdateEvent>? VoiceStateUpdate;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<PresenceUpdateEvent>? PresenceUpdate;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<TypingStartEvent>? TypingStart;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<WebhooksUpdateEvent>? WebhooksUpdate;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<InviteCreateEvent>? InviteCreate;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<InviteDeleteEvent>? InviteDelete;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildIntegrationsUpdateEvent>? GuildIntegrationsUpdate;
 
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<AutoModerationRuleCreatedEvent>? AutoModerationRuleCreated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<AutoModerationRuleUpdatedEvent>? AutoModerationRuleUpdated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<AutoModerationRuleDeletedEvent>? AutoModerationRuleDeleted;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<StageInstanceCreatedEvent>? StageInstanceCreated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<StageInstanceUpdatedEvent>? StageInstanceUpdated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<StageInstanceDeletedEvent>? StageInstanceDeleted;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildScheduledEventCreatedEvent>? GuildScheduledEventCreated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildScheduledEventUpdatedEvent>? GuildScheduledEventUpdated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildScheduledEventDeletedEvent>? GuildScheduledEventDeleted;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<IntegrationCreatedEvent>? IntegrationCreated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<IntegrationUpdatedEvent>? IntegrationUpdated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<IntegrationDeletedEvent>? IntegrationDeleted;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<VoiceServerUpdateEvent>? VoiceServerUpdate;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildJoinRequestCreatedEvent>? GuildJoinRequestCreated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildJoinRequestUpdatedEvent>? GuildJoinRequestUpdated;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildJoinRequestDeletedEvent>? GuildJoinRequestDeleted;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<PollVoteAddedEvent>? PollVoteAdded;
+    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<PollVoteRemovedEvent>? PollVoteRemoved;
+    #pragma warning restore CS0067
 
     public event EventHandler<DiscordChannel>? ChannelCreate;
     public event EventHandler<DiscordChannel>? ChannelUpdate;
