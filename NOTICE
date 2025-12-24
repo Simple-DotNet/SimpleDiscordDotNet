@@ -1,0 +1,19 @@
+﻿SimpleDiscordNet
+Copyright (c) 2025 Robert Erath
+
+This product includes SimpleDiscordNet, licensed under the Apache License,
+Version 2.0 (the "License"). You may not use this software except in
+compliance with the License. You may obtain a copy of the License at:
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Attribution requirement (Apache-2.0 §4):
+- When redistributing source or binaries, retain this NOTICE file and the
+  LICENSE file.
+- For binary redistributions, include this NOTICE text in the documentation
+  and/or other materials provided with the distribution (e.g., documentation,
+  acknowledgements, "About" dialog, or similar).
+
+Third-party notices:
+- None at this time. If you add third-party components, include their
+  attributions here per their respective licenses.

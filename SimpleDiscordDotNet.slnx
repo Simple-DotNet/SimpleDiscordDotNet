@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SimpleDiscordNet/SimpleDiscordNet.csproj" />
+  <Project Path="SimpleDiscordNet.Generators/SimpleDiscordNet.Generators.csproj" />
+</Solution>

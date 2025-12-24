@@ -1,0 +1,42 @@
+﻿# --- Build outputs ---
+[Bb]in/
+[Oo]bj/
+**/[Bb]in/
+**/[Oo]bj/
+Debug/
+Release/
+
+# .NET artifacts
+TestResults/
+.vs/
+
+# JetBrains Rider / IntelliJ
+.idea/
+*.iml
+*.DotSettings.user
+
+# Visual Studio
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# NuGet packages (optional)
+*.nupkg
+*.snupkg
+packages/
+
+# Rider caches
+.idea/.idea.Shelf/
+.idea/.idea.*.shelf/
+
+# Github Wiki Pages
+wiki/

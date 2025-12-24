@@ -1,0 +1,69 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>latestmajor</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+
+        <AssemblyName>SimpleDiscordDotNet</AssemblyName>
+        <Version>1.5.0</Version>
+
+        <IsPackable>true</IsPackable>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+
+        <!-- Package metadata -->
+        <PackageId>SimpleDiscordDotNet</PackageId>
+        <Title>SimpleDiscordNet</Title>
+        <Authors>SimpleDiscordNet Contributors</Authors>
+        <Description>A tiny, dependency-free Discord bot SDK for .NET 10 with enterprise-grade rate limiting, slash commands, components, modals, and full AOT compatibility.</Description>
+        <PackageTags>discord;bot;api;gateway;rest;slash-commands;discord-bot;aot;native-aot;trimming;rate-limiting</PackageTags>
+        <PackageLicenseFile>LICENSE</PackageLicenseFile>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/SimpleDiscordNet/SimpleDiscordNet</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageReleaseNotes>v1.5.0: Added missing Discord gateway events (InteractionCreated, GuildEmojisUpdated, VoiceStateUpdated, PresenceUpdated, TypingStarted, WebhooksUpdated, InviteCreated, InviteDeleted, GuildIntegrationsUpdated). All events are now exposed via DiscordEvents static class.</PackageReleaseNotes>
+
+        <!-- AOT compatibility -->
+        <IsAotCompatible>true</IsAotCompatible>
+        <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+        <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Remove="Attributes\DiscordGuildsAttribute.cs" />
+        <Compile Remove="Attributes\DiscordChannelsAttribute.cs" />
+        <Compile Remove="Attributes\DiscordMembersAttribute.cs" />
+        <Compile Remove="Attributes\DiscordUsersAttribute.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\README.md" Pack="true" PackagePath="\" />
+        <None Include="..\LICENSE" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <!-- Reference for build-time usage only -->
+    <ItemGroup>
+        <!-- Use the generator during local builds as an analyzer -->
+        <ProjectReference Include="..\SimpleDiscordNet.Generators\SimpleDiscordNet.Generators.csproj"
+                          OutputItemType="Analyzer"
+                          ReferenceOutputAssembly="false"
+                          PrivateAssets="all" />
+    </ItemGroup>
+
+    <!-- Explicitly pack the generator -->
+    <ItemGroup>
+        <None Include="..\SimpleDiscordNet.Generators\bin\$(Configuration)\netstandard2.0\SimpleDiscordNet.Generators.dll"
+              Pack="true"
+              PackagePath="analyzers/dotnet/cs" />
+    </ItemGroup>
+
+    <!-- Ensure generator is built first -->
+    <Target Name="BuildGeneratorBeforePack" BeforeTargets="Pack">
+        <MSBuild Projects="..\SimpleDiscordNet.Generators\SimpleDiscordNet.Generators.csproj"
+                 Targets="Build"
+                 Properties="Configuration=$(Configuration)" />
+    </Target>
+
+</Project>
