@@ -76,7 +76,8 @@ public sealed class DiscordBot : IDiscordBot
         string? coordinatorUrl,
         string? workerListenUrl,
         string? workerId,
-        bool isOriginalCoordinator)
+        bool isOriginalCoordinator,
+        SynchronizationContext? synchronizationContext)
     {
         _token = token;
         _intents = intents;
@@ -140,6 +141,12 @@ public sealed class DiscordBot : IDiscordBot
         _slashCommands = new SlashCommandService(logger);
         _components = new ComponentService(logger);
 
+        // Configure synchronization context for observable collections
+        if (synchronizationContext != null)
+        {
+            _cache.SetSynchronizationContext(synchronizationContext);
+        }
+
         // Centralized wiring
         WireGatewayEvents();
     }
@@ -168,8 +175,20 @@ public sealed class DiscordBot : IDiscordBot
             _logger.Log(LogLevel.Warning, "DirectMessages intent is not enabled; MessageCreate will not fire for direct messages (DMs). Enable DiscordIntents.DirectMessages to receive DM events.");
         }
 
-        // Register ambient provider so consumers can access cached data.
-        DiscordContext.SetProvider(this, _botUser, _cache.SnapshotGuilds, _cache.SnapshotChannels, _cache.SnapshotMembers, _cache.SnapshotUsers, _cache.SnapshotRoles);
+        // Register ambient provider so consumers can access cached data (both snapshots and live collections).
+        DiscordContext.SetProvider(
+            this,
+            _botUser,
+            _cache.SnapshotGuilds,
+            _cache.SnapshotChannels,
+            _cache.SnapshotMembers,
+            _cache.SnapshotUsers,
+            _cache.SnapshotRoles,
+            _cache.LiveGuilds,
+            () => _cache.LiveChannels,
+            () => _cache.LiveMembers,
+            _cache.GetLiveChannels,
+            _cache.GetLiveMembers);
 
         // Optionally preload caches using REST (runs in background)
         if (_preloadGuilds || _preloadChannels || _preloadMembers)
@@ -1454,7 +1473,8 @@ public sealed class DiscordBot : IDiscordBot
             options.CoordinatorUrl,
             options.WorkerListenUrl,
             options.WorkerId,
-            options.IsOriginalCoordinator);
+            options.IsOriginalCoordinator,
+            options.SynchronizationContext);
 
         return bot;
     }
@@ -1485,6 +1505,7 @@ public sealed class DiscordBot : IDiscordBot
         private string? _workerListenUrl;
         private string? _workerId;
         private bool _isOriginalCoordinator;
+        private SynchronizationContext? _synchronizationContext;
 
         /// <summary>
         /// Sets the bot token used for authentication.
@@ -1539,6 +1560,17 @@ public sealed class DiscordBot : IDiscordBot
             _preloadGuilds = guilds;
             _preloadChannels = channels;
             _preloadMembers = members;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the synchronization context for marshaling observable collection change notifications to a specific thread (typically the UI thread).
+        /// This is essential for UI frameworks like WPF, MAUI, and Avalonia that require collection changes to occur on the UI thread.
+        /// Example: builder.WithSynchronizationContext(SynchronizationContext.Current);
+        /// </summary>
+        public Builder WithSynchronizationContext(SynchronizationContext? synchronizationContext)
+        {
+            _synchronizationContext = synchronizationContext;
             return this;
         }
 
@@ -1640,7 +1672,7 @@ public sealed class DiscordBot : IDiscordBot
                 throw new InvalidOperationException("Token is required");
 
             DiscordBot bot = new(_token!, _intents, _json, _logger, _timeProvider, _preloadGuilds, _preloadChannels, _preloadMembers, _autoLoadFullGuildData, _developmentMode, _developmentGuildIds,
-                _shardMode, _shardId, _totalShards, _coordinatorUrl, _workerListenUrl, _workerId, _isOriginalCoordinator);
+                _shardMode, _shardId, _totalShards, _coordinatorUrl, _workerListenUrl, _workerId, _isOriginalCoordinator, _synchronizationContext);
 
             // Auto-register any manifests provided by source-generated initializers
             foreach (IGeneratedManifestProvider provider in GeneratedRegistry.Providers)
@@ -1745,18 +1777,52 @@ public sealed class DiscordBot : IDiscordBot
         // Check if we need to load full member list via gateway chunking
         if ((_intents & DiscordIntents.GuildMembers) == DiscordIntents.GuildMembers)
         {
-            _logger.Log(LogLevel.Debug, $"Requesting full member list for guild {guildId}");
-            try
+            // Check if we already have all members from GUILD_CREATE
+            bool allMembersProvided = false;
+            if (_cache.TryGetGuild(guildId, out DiscordGuild? guildForCheck) &&
+                guildForCheck.Member_Count.HasValue &&
+                guildCreateMembers is not null)
             {
-                // Register that we're waiting for member chunks
-                _pendingMemberChunks.TryAdd(guildId, 1);
-                await _gateway!.RequestGuildMembersAsync(guildId.ToString());
-                needsMembers = true;
+                int providedMemberCount = guildCreateMembers.Length;
+                int totalMemberCount = guildForCheck.Member_Count.Value;
+
+                if (providedMemberCount >= totalMemberCount)
+                {
+                    allMembersProvided = true;
+                    _logger.Log(LogLevel.Debug, $"Guild {guildId} already has all {providedMemberCount}/{totalMemberCount} members from GUILD_CREATE, skipping chunk request");
+                }
             }
-            catch (Exception ex)
+
+            // Only request chunks if we don't have all members
+            if (!allMembersProvided)
             {
-                _logger.Log(LogLevel.Warning, $"Failed to request members for guild {guildId}: {ex.Message}");
-                _pendingMemberChunks.TryRemove(guildId, out _);
+                _logger.Log(LogLevel.Debug, $"Requesting full member list for guild {guildId}");
+                try
+                {
+                    // Register that we're waiting for member chunks
+                    _pendingMemberChunks.TryAdd(guildId, 1);
+                    await _gateway!.RequestGuildMembersAsync(guildId.ToString());
+                    needsMembers = true;
+
+                    // Set up a timeout to prevent waiting forever
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(30));
+                        if (_pendingMemberChunks.TryRemove(guildId, out _))
+                        {
+                            _logger.Log(LogLevel.Warning, $"Timeout waiting for member chunks for guild {guildId}, firing GuildReady anyway");
+                            if (_cache.TryGetGuild(guildId, out DiscordGuild guild))
+                            {
+                                DiscordEvents.RaiseGuildReady(this, new GuildEvent { Guild = guild });
+                            }
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.Log(LogLevel.Warning, $"Failed to request members for guild {guildId}: {ex.Message}");
+                    _pendingMemberChunks.TryRemove(guildId, out _);
+                }
             }
         }
 

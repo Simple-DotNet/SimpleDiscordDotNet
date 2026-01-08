@@ -112,4 +112,11 @@ public sealed record DiscordBotOptions
     /// Example: TotalShards = 4
     /// </summary>
     public int? TotalShards { get; init; }
+
+    /// <summary>
+    /// Optional synchronization context for marshaling observable collection change notifications to a specific thread (typically the UI thread).
+    /// This is essential for UI frameworks like WPF, MAUI, and Avalonia that require collection changes to occur on the UI thread.
+    /// Example: SynchronizationContext = SynchronizationContext.Current
+    /// </summary>
+    public SynchronizationContext? SynchronizationContext { get; init; }
 }
