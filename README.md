@@ -16,6 +16,7 @@ SimpleDiscordDotNet is designed for developers who want:
 - ✅ Slash commands, components, and modals with attribute-based handlers
 - ✅ Source generator for zero-reflection command/component discovery
 - ✅ Ambient context for accessing cached guilds, channels, members, roles
+- ✅ **Live observable collections** - Thread-safe `INotifyCollectionChanged` for WPF/MAUI/Avalonia UI binding
 - ✅ Comprehensive gateway events for all entity changes
 - ✅ Advanced rate limiting with bucket management and monitoring
 - ✅ Full Discord API v10 support (messages, reactions, permissions, roles, channels, threads, etc.)

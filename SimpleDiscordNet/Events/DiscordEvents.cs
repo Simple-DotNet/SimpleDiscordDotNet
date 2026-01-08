@@ -10,10 +10,14 @@ namespace SimpleDiscordNet.Events;
 public static class DiscordEvents
 {
     // ---- Connection and logging ----
+    /// <summary>Fired when the bot successfully connects to Discord's gateway.</summary>
     public static event EventHandler? Connected;
+    /// <summary>Fired when the bot disconnects from Discord's gateway.</summary>
     public static event EventHandler<Exception?>? Disconnected;
+    /// <summary>Fired when an error occurs in the bot.</summary>
     public static event EventHandler<Exception>? Error;
 
+    /// <summary>Fired when the bot logs a message.</summary>
     public static event EventHandler<LogMessage>? Log;
 
     internal static void RaiseConnected(object? sender)
@@ -26,47 +30,74 @@ public static class DiscordEvents
         => Log?.Invoke(sender, msg);
 
     // ---- Domain events ----
+    /// <summary>Fired when the bot joins a guild or receives GUILD_CREATE from Discord.</summary>
     public static event EventHandler<GuildEvent>? GuildAdded;
+    /// <summary>Fired when a guild's information is updated.</summary>
     public static event EventHandler<GuildEvent>? GuildUpdated;
-    public static event EventHandler<string>? GuildRemoved; // guild id
+    /// <summary>Fired when the bot leaves or is removed from a guild. Event argument is the guild ID.</summary>
+    public static event EventHandler<string>? GuildRemoved;
     /// <summary>
     /// Fired when a guild is fully loaded with all members, channels, roles, and emojis.
     /// Only fires when AutoLoadFullGuildData is enabled (default).
     /// </summary>
     public static event EventHandler<GuildEvent>? GuildReady;
 
+    /// <summary>Fired when a channel is created in a guild.</summary>
     public static event EventHandler<ChannelEvent>? ChannelCreated;
+    /// <summary>Fired when a channel is updated in a guild.</summary>
     public static event EventHandler<ChannelEvent>? ChannelUpdated;
+    /// <summary>Fired when a channel is deleted from a guild.</summary>
     public static event EventHandler<ChannelEvent>? ChannelDeleted;
 
+    /// <summary>Fired when a role is created in a guild.</summary>
     public static event EventHandler<RoleEvent>? RoleCreated;
+    /// <summary>Fired when a role is updated in a guild.</summary>
     public static event EventHandler<RoleEvent>? RoleUpdated;
+    /// <summary>Fired when a role is deleted from a guild.</summary>
     public static event EventHandler<RoleEvent>? RoleDeleted;
 
+    /// <summary>Fired when a thread is created in a guild.</summary>
     public static event EventHandler<ThreadEvent>? ThreadCreated;
+    /// <summary>Fired when a thread is updated in a guild.</summary>
     public static event EventHandler<ThreadEvent>? ThreadUpdated;
+    /// <summary>Fired when a thread is deleted from a guild.</summary>
     public static event EventHandler<ThreadEvent>? ThreadDeleted;
 
+    /// <summary>Fired when a message is created in any channel the bot can see.</summary>
     public static event EventHandler<MessageCreateEvent>? MessageCreated;
+    /// <summary>Fired when a message is edited.</summary>
     public static event EventHandler<MessageUpdateEvent>? MessageUpdated;
+    /// <summary>Fired when a message is deleted.</summary>
     public static event EventHandler<MessageEvent>? MessageDeleted;
+    /// <summary>Fired when multiple messages are deleted at once (bulk delete).</summary>
     public static event EventHandler<MessageEvent>? MessagesBulkDeleted;
 
+    /// <summary>Fired when a reaction is added to a message.</summary>
     public static event EventHandler<ReactionEvent>? ReactionAdded;
+    /// <summary>Fired when a reaction is removed from a message.</summary>
     public static event EventHandler<ReactionEvent>? ReactionRemoved;
+    /// <summary>Fired when all reactions for a specific emoji are removed from a message.</summary>
     public static event EventHandler<ReactionEvent>? ReactionsClearedForEmoji;
+    /// <summary>Fired when all reactions are removed from a message.</summary>
     public static event EventHandler<MessageEvent>? ReactionsCleared;
 
+    /// <summary>Fired when a member joins a guild. Requires GUILD_MEMBERS intent.</summary>
     public static event EventHandler<MemberEvent>? MemberJoined;
+    /// <summary>Fired when a member's information is updated (nickname, roles, etc). Requires GUILD_MEMBERS intent.</summary>
     public static event EventHandler<MemberEvent>? MemberUpdated;
-    public static event EventHandler<MemberEvent>? MemberLeft; // includes kicks/leaves
+    /// <summary>Fired when a member leaves a guild (includes kicks and bans). Requires GUILD_MEMBERS intent.</summary>
+    public static event EventHandler<MemberEvent>? MemberLeft;
 
+    /// <summary>Fired when a chunk of guild members is received via REQUEST_GUILD_MEMBERS. Requires GUILD_MEMBERS intent.</summary>
     public static event EventHandler<GuildMembersChunkEvent>? GuildMembersChunk;
 
+    /// <summary>Fired when a member is banned from a guild. Requires GUILD_MODERATION intent.</summary>
     public static event EventHandler<BanEvent>? BanAdded;
+    /// <summary>Fired when a member is unbanned from a guild. Requires GUILD_MODERATION intent.</summary>
     public static event EventHandler<BanEvent>? BanRemoved;
 
-    public static event EventHandler<BotUserEvent>? BotUserUpdated; // Only the bot user per Discord API
+    /// <summary>Fired when the bot's user information is updated.</summary>
+    public static event EventHandler<BotUserEvent>? BotUserUpdated;
 
     // Audit logs
     /// <summary>
@@ -76,65 +107,96 @@ public static class DiscordEvents
     public static event EventHandler<AuditLogEvent>? AuditLogEntryCreated;
 
     // Interactions
+    /// <summary>Fired when an interaction (slash command, button, select menu, etc) is created.</summary>
     public static event EventHandler<InteractionCreateEvent>? InteractionCreated;
 
     // Guild emojis
+    /// <summary>Fired when a guild's emojis are updated.</summary>
     public static event EventHandler<GuildEmojisUpdateEvent>? GuildEmojisUpdated;
 
     // Voice
+    /// <summary>Fired when a user's voice state changes (joins/leaves/mutes/deafens). Requires GUILD_VOICE_STATES intent.</summary>
     public static event EventHandler<VoiceStateUpdateEvent>? VoiceStateUpdated;
 
     // Presence
+    /// <summary>Fired when a user's presence updates (status, activity, etc). Requires GUILD_PRESENCES intent.</summary>
     public static event EventHandler<PresenceUpdateEvent>? PresenceUpdated;
 
     // Typing
+    /// <summary>Fired when a user starts typing in a channel. Requires GUILD_MESSAGE_TYPING or DM_MESSAGE_TYPING intent.</summary>
     public static event EventHandler<TypingStartEvent>? TypingStarted;
 
     // Webhooks
+    /// <summary>Fired when a channel's webhooks are updated.</summary>
     public static event EventHandler<WebhooksUpdateEvent>? WebhooksUpdated;
 
     // Invites
+    /// <summary>Fired when an invite is created. Requires GUILD_INVITES intent.</summary>
     public static event EventHandler<InviteCreateEvent>? InviteCreated;
+    /// <summary>Fired when an invite is deleted. Requires GUILD_INVITES intent.</summary>
     public static event EventHandler<InviteDeleteEvent>? InviteDeleted;
     // Integrations
+    /// <summary>Fired when a guild's integrations are updated.</summary>
     public static event EventHandler<GuildIntegrationsUpdateEvent>? GuildIntegrationsUpdated;
 
     // Direct messages
+    /// <summary>Fired when a direct message is received.</summary>
     public static event EventHandler<DirectMessageEvent>? DirectMessageReceived;
 
     // Auto Moderation
+    /// <summary>Fired when an auto-moderation rule is created. Requires GUILD_MODERATION intent.</summary>
     public static event EventHandler<AutoModerationRuleCreatedEvent>? AutoModerationRuleCreated;
+    /// <summary>Fired when an auto-moderation rule is updated. Requires GUILD_MODERATION intent.</summary>
     public static event EventHandler<AutoModerationRuleUpdatedEvent>? AutoModerationRuleUpdated;
+    /// <summary>Fired when an auto-moderation rule is deleted. Requires GUILD_MODERATION intent.</summary>
     public static event EventHandler<AutoModerationRuleDeletedEvent>? AutoModerationRuleDeleted;
+    /// <summary>Fired when an auto-moderation action is executed. Requires GUILD_MODERATION intent.</summary>
     public static event EventHandler<AutoModerationActionExecutionEvent>? AutoModerationActionExecution;
 
     // Stage Instance
+    /// <summary>Fired when a stage instance is created.</summary>
     public static event EventHandler<StageInstanceCreatedEvent>? StageInstanceCreated;
+    /// <summary>Fired when a stage instance is updated.</summary>
     public static event EventHandler<StageInstanceUpdatedEvent>? StageInstanceUpdated;
+    /// <summary>Fired when a stage instance is deleted.</summary>
     public static event EventHandler<StageInstanceDeletedEvent>? StageInstanceDeleted;
 
     // Guild Scheduled Event
+    /// <summary>Fired when a guild scheduled event is created.</summary>
     public static event EventHandler<GuildScheduledEventCreatedEvent>? GuildScheduledEventCreated;
+    /// <summary>Fired when a guild scheduled event is updated.</summary>
     public static event EventHandler<GuildScheduledEventUpdatedEvent>? GuildScheduledEventUpdated;
+    /// <summary>Fired when a guild scheduled event is deleted.</summary>
     public static event EventHandler<GuildScheduledEventDeletedEvent>? GuildScheduledEventDeleted;
+    /// <summary>Fired when a user subscribes to a guild scheduled event.</summary>
     public static event EventHandler<GuildScheduledEventUserAddedEvent>? GuildScheduledEventUserAdded;
+    /// <summary>Fired when a user unsubscribes from a guild scheduled event.</summary>
     public static event EventHandler<GuildScheduledEventUserRemovedEvent>? GuildScheduledEventUserRemoved;
 
     // Integration
+    /// <summary>Fired when a guild integration is created.</summary>
     public static event EventHandler<IntegrationCreatedEvent>? IntegrationCreated;
+    /// <summary>Fired when a guild integration is updated.</summary>
     public static event EventHandler<IntegrationUpdatedEvent>? IntegrationUpdated;
+    /// <summary>Fired when a guild integration is deleted.</summary>
     public static event EventHandler<IntegrationDeletedEvent>? IntegrationDeleted;
 
     // Voice Server
+    /// <summary>Fired when a voice server is updated for a guild.</summary>
     public static event EventHandler<VoiceServerUpdateEvent>? VoiceServerUpdated;
 
     // Guild Join Request
+    /// <summary>Fired when a guild join request is created.</summary>
     public static event EventHandler<GuildJoinRequestCreatedEvent>? GuildJoinRequestCreated;
+    /// <summary>Fired when a guild join request is updated.</summary>
     public static event EventHandler<GuildJoinRequestUpdatedEvent>? GuildJoinRequestUpdated;
+    /// <summary>Fired when a guild join request is deleted.</summary>
     public static event EventHandler<GuildJoinRequestDeletedEvent>? GuildJoinRequestDeleted;
 
     // Poll Vote
+    /// <summary>Fired when a vote is added to a poll.</summary>
     public static event EventHandler<PollVoteAddedEvent>? PollVoteAdded;
+    /// <summary>Fired when a vote is removed from a poll.</summary>
     public static event EventHandler<PollVoteRemovedEvent>? PollVoteRemoved;
 
     internal static void RaiseGuildAdded(object? sender, GuildEvent e) => GuildAdded?.Invoke(sender, e);
