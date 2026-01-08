@@ -59,6 +59,9 @@ public sealed class DiscordGuild
     /// <summary>Maximum number of members for the guild</summary>
     public int? Max_Members { get; internal set; }
 
+    /// <summary>Total number of members in the guild</summary>
+    public int? Member_Count { get; internal set; }
+
     /// <summary>Vanity URL code</summary>
     public string? Vanity_Url_Code { get; internal set; }
 

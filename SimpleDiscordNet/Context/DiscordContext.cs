@@ -1,3 +1,4 @@
+using SimpleDiscordNet.Collections;
 using SimpleDiscordNet.Entities;
 
 namespace SimpleDiscordNet.Context;
@@ -5,6 +6,7 @@ namespace SimpleDiscordNet.Context;
 /// <summary>
 /// Ambient access to cached Discord data for the currently running bot instance.
 /// Consumers can read Guilds/Channels/Members/Users anywhere in their application.
+/// Supports both snapshot-based access (backward compatible) and live observable collections for UI binding.
 /// </summary>
 public static class DiscordContext
 {
@@ -15,6 +17,13 @@ public static class DiscordContext
     private static Func<IReadOnlyList<DiscordMember>>? s_membersProvider;
     private static Func<IReadOnlyList<DiscordUser>>? s_usersProvider;
     private static Func<IReadOnlyList<DiscordRole>>? s_rolesProvider;
+
+    // Live observable collections
+    private static ObservableConcurrentDictionary<ulong, DiscordGuild>? s_liveGuilds;
+    private static Func<IEnumerable<DiscordChannel>>? s_liveChannelsProvider;
+    private static Func<IEnumerable<DiscordMember>>? s_liveMembersProvider;
+    private static Func<ulong, ObservableConcurrentList<DiscordChannel>?>? s_liveChannelsForGuildProvider;
+    private static Func<ulong, ObservableConcurrentList<DiscordMember>?>? s_liveMembersForGuildProvider;
 
     private static readonly DiscordGuild[] s_emptyGuilds = [];
     private static readonly DiscordChannel[] s_emptyChannels = [];
@@ -48,6 +57,45 @@ public static class DiscordContext
 
     /// <summary>All roles known to the bot (each role has guild context via the Guild property)</summary>
     public static IReadOnlyList<DiscordRole> Roles => s_rolesProvider?.Invoke() ?? s_emptyRoles;
+
+    // --- Live Observable Collections for UI Binding ---
+
+    /// <summary>
+    /// Gets the live observable dictionary of guilds. Changes to this collection automatically
+    /// raise INotifyCollectionChanged events, making it suitable for UI binding.
+    /// Example: myListView.ItemsSource = DiscordContext.LiveGuilds.Values;
+    /// </summary>
+    public static ObservableConcurrentDictionary<ulong, DiscordGuild>? LiveGuilds => s_liveGuilds;
+
+    /// <summary>
+    /// Gets all live channels flattened into a single enumerable. For UI binding to a specific guild's channels,
+    /// use GetLiveChannelsForGuild(guildId) instead for better performance and automatic updates.
+    /// </summary>
+    public static IEnumerable<DiscordChannel> LiveChannels => s_liveChannelsProvider?.Invoke() ?? Enumerable.Empty<DiscordChannel>();
+
+    /// <summary>
+    /// Gets all live members flattened into a single enumerable. For UI binding to a specific guild's members,
+    /// use GetLiveMembersForGuild(guildId) instead for better performance and automatic updates.
+    /// </summary>
+    public static IEnumerable<DiscordMember> LiveMembers => s_liveMembersProvider?.Invoke() ?? Enumerable.Empty<DiscordMember>();
+
+    /// <summary>
+    /// Gets the live observable list of channels for a specific guild. This list automatically
+    /// updates when channels are added, removed, or modified, raising INotifyCollectionChanged events.
+    /// Returns null if the guild has no cached channels.
+    /// Example: myChannelList.ItemsSource = DiscordContext.GetLiveChannelsForGuild(guildId);
+    /// </summary>
+    public static ObservableConcurrentList<DiscordChannel>? GetLiveChannelsForGuild(ulong guildId)
+        => s_liveChannelsForGuildProvider?.Invoke(guildId);
+
+    /// <summary>
+    /// Gets the live observable list of members for a specific guild. This list automatically
+    /// updates when members join, leave, or are modified, raising INotifyCollectionChanged events.
+    /// Returns null if the guild has no cached members.
+    /// Example: myMemberList.ItemsSource = DiscordContext.GetLiveMembersForGuild(guildId);
+    /// </summary>
+    public static ObservableConcurrentList<DiscordMember>? GetLiveMembersForGuild(ulong guildId)
+        => s_liveMembersForGuildProvider?.Invoke(guildId);
 
     /// <summary>All category channels</summary>
     public static IReadOnlyList<DiscordChannel> Categories => Channels.Where(c => c.IsCategory).ToArray();
@@ -124,7 +172,12 @@ public static class DiscordContext
         Func<IReadOnlyList<DiscordChannel>> channels,
         Func<IReadOnlyList<DiscordMember>> members,
         Func<IReadOnlyList<DiscordUser>> users,
-        Func<IReadOnlyList<DiscordRole>> roles)
+        Func<IReadOnlyList<DiscordRole>> roles,
+        ObservableConcurrentDictionary<ulong, DiscordGuild>? liveGuilds = null,
+        Func<IEnumerable<DiscordChannel>>? liveChannels = null,
+        Func<IEnumerable<DiscordMember>>? liveMembers = null,
+        Func<ulong, ObservableConcurrentList<DiscordChannel>?>? liveChannelsForGuild = null,
+        Func<ulong, ObservableConcurrentList<DiscordMember>?>? liveMembersForGuild = null)
     {
         s_operations = new DiscordContextOperations(bot);
         s_botUser = botUser;
@@ -133,6 +186,13 @@ public static class DiscordContext
         s_membersProvider = members;
         s_usersProvider = users;
         s_rolesProvider = roles;
+
+        // Set live collection providers
+        s_liveGuilds = liveGuilds;
+        s_liveChannelsProvider = liveChannels;
+        s_liveMembersProvider = liveMembers;
+        s_liveChannelsForGuildProvider = liveChannelsForGuild;
+        s_liveMembersForGuildProvider = liveMembersForGuild;
     }
 
     internal static void ClearProvider()
@@ -144,5 +204,12 @@ public static class DiscordContext
         s_membersProvider = null;
         s_usersProvider = null;
         s_rolesProvider = null;
+
+        // Clear live collection providers
+        s_liveGuilds = null;
+        s_liveChannelsProvider = null;
+        s_liveMembersProvider = null;
+        s_liveChannelsForGuildProvider = null;
+        s_liveMembersForGuildProvider = null;
     }
 }

@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.5.0</Version>
+        <Version>1.6.0</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.5.0: Added missing Discord gateway events (InteractionCreated, GuildEmojisUpdated, VoiceStateUpdated, PresenceUpdated, TypingStarted, WebhooksUpdated, InviteCreated, InviteDeleted, GuildIntegrationsUpdated). All events are now exposed via DiscordEvents static class.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.6.0: Live Observable Collections - Added ObservableConcurrentDictionary and ObservableConcurrentList with INotifyCollectionChanged for UI binding (WPF/MAUI/Avalonia). EntityCache now exposes live observable collections (LiveGuilds, LiveChannels, LiveMembers) for real-time UI data binding. Supports batch operations to prevent UI thrashing on large servers. Optional SynchronizationContext for automatic UI thread marshaling. Backward compatible - all snapshot-based APIs preserved.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
