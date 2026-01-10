@@ -207,7 +207,7 @@ public sealed class ChannelSelect : IComponent
 // Text input (used inside modal action rows)
 public sealed class TextInput
 {
-    public static int type => 4; // text input
+    public int type => 4; // text input
     public string custom_id { get; }
     public string label { get; }
     public int style { get; } // 1=short, 2=paragraph

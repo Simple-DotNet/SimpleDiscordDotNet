@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.6.0</Version>
+        <Version>1.6.4</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.6.0: Live Observable Collections - Added ObservableConcurrentDictionary and ObservableConcurrentList with INotifyCollectionChanged for UI binding (WPF/MAUI/Avalonia). EntityCache now exposes live observable collections (LiveGuilds, LiveChannels, LiveMembers) for real-time UI data binding. Supports batch operations to prevent UI thrashing on large servers. Optional SynchronizationContext for automatic UI thread marshaling. Backward compatible - all snapshot-based APIs preserved.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.6.4: Fix TextInput JSON Serialization - Fixed TextInput.type property being static instead of instance property. Static properties aren't serialized to JSON, preventing modal text inputs from working correctly. Changed from 'public static int type' to 'public int type' to enable proper JSON serialization.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>

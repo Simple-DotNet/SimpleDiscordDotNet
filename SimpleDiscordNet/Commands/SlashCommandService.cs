@@ -70,20 +70,58 @@ internal sealed class SlashCommandService(NativeLogger logger)
         }
 
         logger.Log(LogLevel.Warning, $"No generated handler found for command '{top}'{(sub is null ? string.Empty : $"/{sub}")}. Ensure the source generator is referenced and attributes are correct.");
+
+        // Send error response to Discord so it doesn't timeout
+        try
+        {
+            InteractionContext ctx = new InteractionContext(rest, e);
+            await ctx.RespondAsync($"❌ Command handler not found: `{top}{(sub is null ? string.Empty : $"/{sub}")}`", null, true, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.Log(LogLevel.Error, $"Failed to send error response for missing handler: {ex.Message}", ex);
+        }
     }
 
     private async Task InvokeGeneratedAsync(CommandHandler handler, InteractionCreateEvent e, RestClient rest, CancellationToken ct, string top, string? sub)
     {
+        InteractionContext? ctx = null;
+        bool deferred = false;
         try
         {
-            InteractionContext ctx = new InteractionContext(rest, e);
+            ctx = new InteractionContext(rest, e);
             if (handler.AutoDefer)
+            {
                 await ctx.DeferAsync(ephemeral: false, ct).ConfigureAwait(false);
+                deferred = true;
+            }
             await handler.Invoke(ctx, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             logger.Log(LogLevel.Error, $"Error executing slash command '{top}'{(sub is null ? string.Empty : $"/{sub}")}: {ex.Message}", ex);
+
+            // Send error response to Discord so user knows something went wrong
+            if (ctx is not null)
+            {
+                try
+                {
+                    if (deferred)
+                    {
+                        // If already deferred, send followup
+                        await ctx.FollowupAsync($"❌ An error occurred while executing the command.", null, true, ct).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        // Send immediate error response
+                        await ctx.RespondAsync($"❌ An error occurred while executing the command.", null, true, ct).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception responseEx)
+                {
+                    logger.Log(LogLevel.Error, $"Failed to send error response to user: {responseEx.Message}", responseEx);
+                }
+            }
         }
     }
 

@@ -20,7 +20,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
     private const string RoleSelectHandlerAttr = "SimpleDiscordNet.Commands.RoleSelectHandlerAttribute";
     private const string ChannelSelectHandlerAttr = "SimpleDiscordNet.Commands.ChannelSelectHandlerAttribute";
     private const string MentionableSelectHandlerAttr = "SimpleDiscordNet.Commands.MentionableSelectHandlerAttribute";
-    private const string DeferAttr = "SimpleDiscordNet.Commands.DeferAttribute";
+    private const string NoDeferAttr = "SimpleDiscordNet.Commands.NoDeferAttribute";
     private const string CommandOptionAttr = "SimpleDiscordNet.Commands.CommandOptionAttribute";
     private const string CommandChoiceAttr = "SimpleDiscordNet.Commands.CommandChoiceAttribute";
 
@@ -51,7 +51,8 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         bool isComponent = false;
         string? slashName = null;
         string? slashDescription = null;
-        bool autoDefer = false; // default: no auto-defer unless [Defer]
+        bool autoDefer = true; // default: auto-defer enabled, use [NoDefer] to disable
+        bool methodHasNoDefer = false; // track if method has explicit [NoDefer]
         string? componentId = null;
         bool componentPrefix = false;
 
@@ -80,9 +81,10 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                 if (ad.ConstructorArguments.Length >= 2 && ad.ConstructorArguments[1].Value is bool b)
                     componentPrefix = b;
             }
-            else if (name == DeferAttr)
+            else if (name == NoDeferAttr)
             {
-                autoDefer = true; // explicit [Defer] forces defer
+                methodHasNoDefer = true;
+                autoDefer = false; // [NoDefer] disables auto-defer
             }
         }
 
@@ -104,10 +106,10 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                         groupDescription = ad.ConstructorArguments[1].Value as string;
                     break;
                 }
-                // Check for [Defer] on the class level
-                else if (name == DeferAttr && !autoDefer)
+                // Check for [NoDefer] on the class level (only if method didn't have explicit [NoDefer])
+                else if (name == NoDeferAttr && !methodHasNoDefer)
                 {
-                    autoDefer = true; // Class-level [Defer] applies to all methods
+                    autoDefer = false; // [NoDefer] disables auto-defer
                 }
             }
         }

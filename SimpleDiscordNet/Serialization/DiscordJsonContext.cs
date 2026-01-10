@@ -11,7 +11,8 @@ namespace SimpleDiscordNet.Serialization;
 
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata,
                              PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-                             WriteIndented = false)]
+                             WriteIndented = false,
+                             Converters = [typeof(DiscordSnowflakeConverter), typeof(NullableDiscordSnowflakeConverter)])]
 [JsonSerializable(typeof(ApplicationInfo))]
 [JsonSerializable(typeof(DiscordGuild))]
 [JsonSerializable(typeof(DiscordGuild[]))]

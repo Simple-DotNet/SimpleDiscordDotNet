@@ -35,20 +35,58 @@ internal sealed class ComponentService
                                                                || (h.Prefix && customId.StartsWith(h.Id, StringComparison.Ordinal)));
         if (gmatch is not null)
         {
+            InteractionContext? ctx = null;
+            bool deferred = false;
             try
             {
-                var ctx = new InteractionContext(rest, e);
+                ctx = new InteractionContext(rest, e);
                 if (e.Type == InteractionType.MessageComponent && gmatch.AutoDefer)
+                {
                     await ctx.DeferUpdateAsync(ct).ConfigureAwait(false);
+                    deferred = true;
+                }
                 await gmatch.Invoke(ctx, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 _logger.Log(LogLevel.Error, $"Error executing component handler for '{customId}': {ex.Message}", ex);
+
+                // Send error response to Discord so user knows something went wrong
+                if (ctx is not null)
+                {
+                    try
+                    {
+                        if (deferred)
+                        {
+                            // If already deferred, send followup
+                            await ctx.FollowupAsync($"❌ An error occurred while handling this interaction.", null, true, ct).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            // Send immediate error response
+                            await ctx.RespondAsync($"❌ An error occurred while handling this interaction.", null, true, ct).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception responseEx)
+                    {
+                        _logger.Log(LogLevel.Error, $"Failed to send error response to user: {responseEx.Message}", responseEx);
+                    }
+                }
             }
             return;
         }
 
         _logger.Log(LogLevel.Debug, $"No generated component handler found for custom_id '{customId}'. Ensure the source generator is referenced and attributes are correct.");
+
+        // Send error response to Discord so it doesn't timeout
+        try
+        {
+            InteractionContext ctx = new InteractionContext(rest, e);
+            await ctx.RespondAsync($"❌ Component handler not found: `{customId}`", null, true, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(LogLevel.Error, $"Failed to send error response for missing component handler: {ex.Message}", ex);
+        }
     }
 }

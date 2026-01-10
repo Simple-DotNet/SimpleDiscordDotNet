@@ -4,8 +4,11 @@ public sealed class DiscordMember
 {
     public required DiscordUser User { get; init; }
 
-    /// <summary>The guild this member belongs to</summary>
-    public required DiscordGuild Guild { get; init; }
+    /// <summary>
+    /// The guild this member belongs to.
+    /// Note: Populated after deserialization as Discord's member API doesn't include guild in JSON.
+    /// </summary>
+    public DiscordGuild Guild { get; internal set; } = null!;
 
     public string? Nick { get; internal set; }
     public ulong[] Roles { get; internal set; } = [];

@@ -486,7 +486,30 @@ public sealed class DiscordBot : IDiscordBot
         if (limit is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(limit));
         string route = $"/guilds/{guildId}/members?limit={limit}" + (after is null ? string.Empty : $"&after={after}");
         var result = await _rest.GetAsync<DiscordMember[]>(route, ct);
-        return result ?? [];
+
+        if (result is null || result.Length == 0) return [];
+
+        // Get guild from cache or API to populate Guild property on members
+        DiscordGuild? guild = null;
+        if (_cache is not null && _cache.TryGetGuild(ulong.Parse(guildId), out var cachedGuild))
+        {
+            guild = cachedGuild;
+        }
+        else
+        {
+            guild = await GetGuildAsync(guildId, ct);
+        }
+
+        // Populate Guild property on each member (Discord API doesn't return this)
+        if (guild is not null)
+        {
+            foreach (var member in result)
+            {
+                member.Guild = guild;
+            }
+        }
+
+        return result;
     }
 
     public Task<IEnumerable<DiscordMember>> ListGuildMembersAsync(ulong guildId, int limit = 1000, string? after = null, CancellationToken ct = default)
@@ -898,8 +921,31 @@ public sealed class DiscordBot : IDiscordBot
     /// Gets a member from a guild by user ID.
     /// Example: var member = await bot.GetMemberAsync(guildId, userId);
     /// </summary>
-    public Task<DiscordMember?> GetMemberAsync(string guildId, string userId, CancellationToken ct = default)
-        => _rest.GetAsync<DiscordMember>($"/guilds/{guildId}/members/{userId}", ct);
+    public async Task<DiscordMember?> GetMemberAsync(string guildId, string userId, CancellationToken ct = default)
+    {
+        var member = await _rest.GetAsync<DiscordMember>($"/guilds/{guildId}/members/{userId}", ct);
+
+        if (member is not null)
+        {
+            // Get guild from cache or API to populate Guild property
+            DiscordGuild? guild = null;
+            if (_cache is not null && _cache.TryGetGuild(ulong.Parse(guildId), out var cachedGuild))
+            {
+                guild = cachedGuild;
+            }
+            else
+            {
+                guild = await GetGuildAsync(guildId, ct);
+            }
+
+            if (guild is not null)
+            {
+                member.Guild = guild;
+            }
+        }
+
+        return member;
+    }
 
     /// <summary>
     /// Gets a channel by ID.
