@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.6.4</Version>
+        <Version>1.6.6</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.6.4: Fix TextInput JSON Serialization - Fixed TextInput.type property being static instead of instance property. Static properties aren't serialized to JSON, preventing modal text inputs from working correctly. Changed from 'public static int type' to 'public int type' to enable proper JSON serialization.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.6.6: Add [Ephemeral] attribute for private responses - Added [Ephemeral] attribute to enable ephemeral (private) auto-defer responses. Use [Ephemeral] on commands/handlers to make all responses visible only to the triggering user. Also fixed RespondAsync(MessageBuilder, ephemeral: true) to properly respect ephemeral flag on deferred interactions.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>

@@ -92,7 +92,7 @@ internal sealed class SlashCommandService(NativeLogger logger)
             ctx = new InteractionContext(rest, e);
             if (handler.AutoDefer)
             {
-                await ctx.DeferAsync(ephemeral: false, ct).ConfigureAwait(false);
+                await ctx.DeferAsync(ephemeral: handler.DeferEphemeral, ct).ConfigureAwait(false);
                 deferred = true;
             }
             await handler.Invoke(ctx, ct).ConfigureAwait(false);

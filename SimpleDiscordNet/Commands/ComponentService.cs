@@ -42,7 +42,15 @@ internal sealed class ComponentService
                 ctx = new InteractionContext(rest, e);
                 if (e.Type == InteractionType.MessageComponent && gmatch.AutoDefer)
                 {
-                    await ctx.DeferUpdateAsync(ct).ConfigureAwait(false);
+                    // If ephemeral, use DeferAsync (creates new response), otherwise DeferUpdateAsync (updates message)
+                    if (gmatch.DeferEphemeral)
+                    {
+                        await ctx.DeferAsync(ephemeral: true, ct).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await ctx.DeferUpdateAsync(ct).ConfigureAwait(false);
+                    }
                     deferred = true;
                 }
                 await gmatch.Invoke(ctx, ct).ConfigureAwait(false);

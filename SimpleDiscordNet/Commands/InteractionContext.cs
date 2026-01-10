@@ -102,7 +102,14 @@ public sealed class InteractionContext
 
         if (_deferred || _deferredUpdate)
         {
-            return _rest.PostWebhookFollowupAsync(ApplicationId, InteractionToken, payload, ct);
+            WebhookMessageRequest webhookPayload = new()
+            {
+                content = payload.content,
+                embeds = payload.embeds,
+                components = payload.components,
+                flags = ephemeral ? 1 << 6 : null
+            };
+            return _rest.PostWebhookFollowupAsync(ApplicationId, InteractionToken, webhookPayload, ct);
         }
 
         InteractionResponseData data = new()
