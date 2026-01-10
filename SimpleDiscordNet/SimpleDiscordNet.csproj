@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.6.3</Version>
+        <Version>1.6.4</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.6.3: Fix DiscordMember.Guild Population - Fixes DiscordMember deserialization from REST API. Discord's /guilds/{id}/members endpoint doesn't return guild field in JSON. Changed Guild property to be internally settable and populate it after deserialization in ListGuildMembersAsync and GetMemberAsync methods. Guild is fetched from cache or API and set on each member. Gateway interactions already create placeholder guild. This fixes member-related API calls that were failing in v1.6.2.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.6.4: Fix TextInput JSON Serialization - Fixed TextInput.type property being static instead of instance property. Static properties aren't serialized to JSON, preventing modal text inputs from working correctly. Changed from 'public static int type' to 'public int type' to enable proper JSON serialization.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
