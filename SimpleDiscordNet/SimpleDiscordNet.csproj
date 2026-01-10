@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.6.1</Version>
+        <Version>1.6.2</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.6.1: Auto-Defer &amp; Reliable Command Responses - Commands now auto-defer by default to prevent "The application did not respond" errors. Use [NoDefer] attribute to disable for instant responses or modals. Automatic error responses ensure Discord always receives a reply within 3 seconds. Handlers that fail now send user-friendly error messages instead of timing out. Breaking: [Defer] renamed to [NoDefer] (opt-out model). Command routing reliability improved with guaranteed responses for missing handlers and exceptions.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.6.2: Critical Fix - Discord Snowflake ID Deserialization - Fixes runtime crashes when processing Gateway events and REST API responses. Discord sends snowflake IDs as JSON strings, but v1.6.1 incorrectly attempted to parse them as numbers. Added DiscordSnowflakeConverter for automatic string-to-ulong conversion in JSON serialization. Updated all manual JSON parsing (~110 instances) to handle string IDs correctly. This makes SimpleDiscordNet 1.6.x fully functional. Previous versions (1.6.0-1.6.1) are non-functional due to this bug.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
