@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.6.0</Version>
+        <Version>1.6.1</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.6.0: Live Observable Collections - Added ObservableConcurrentDictionary and ObservableConcurrentList with INotifyCollectionChanged for UI binding (WPF/MAUI/Avalonia). EntityCache now exposes live observable collections (LiveGuilds, LiveChannels, LiveMembers) for real-time UI data binding. Supports batch operations to prevent UI thrashing on large servers. Optional SynchronizationContext for automatic UI thread marshaling. Backward compatible - all snapshot-based APIs preserved.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.6.1: Auto-Defer &amp; Reliable Command Responses - Commands now auto-defer by default to prevent "The application did not respond" errors. Use [NoDefer] attribute to disable for instant responses or modals. Automatic error responses ensure Discord always receives a reply within 3 seconds. Handlers that fail now send user-friendly error messages instead of timing out. Breaking: [Defer] renamed to [NoDefer] (opt-out model). Command routing reliability improved with guaranteed responses for missing handlers and exceptions.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
