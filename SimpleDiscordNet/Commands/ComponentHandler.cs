@@ -5,4 +5,5 @@ public sealed record ComponentHandler(
     bool Prefix,
     bool HasContext,
     bool AutoDefer,
+    bool DeferEphemeral,
     Func<InteractionContext, CancellationToken, ValueTask> Invoke);

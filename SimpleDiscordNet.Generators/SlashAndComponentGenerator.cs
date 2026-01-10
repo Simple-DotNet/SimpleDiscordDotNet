@@ -21,6 +21,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
     private const string ChannelSelectHandlerAttr = "SimpleDiscordNet.Commands.ChannelSelectHandlerAttribute";
     private const string MentionableSelectHandlerAttr = "SimpleDiscordNet.Commands.MentionableSelectHandlerAttribute";
     private const string NoDeferAttr = "SimpleDiscordNet.Commands.NoDeferAttribute";
+    private const string EphemeralAttr = "SimpleDiscordNet.Commands.EphemeralAttribute";
     private const string CommandOptionAttr = "SimpleDiscordNet.Commands.CommandOptionAttribute";
     private const string CommandChoiceAttr = "SimpleDiscordNet.Commands.CommandChoiceAttribute";
 
@@ -53,6 +54,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         string? slashDescription = null;
         bool autoDefer = true; // default: auto-defer enabled, use [NoDefer] to disable
         bool methodHasNoDefer = false; // track if method has explicit [NoDefer]
+        bool deferEphemeral = false; // track if method has [Ephemeral]
         string? componentId = null;
         bool componentPrefix = false;
 
@@ -86,6 +88,10 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                 methodHasNoDefer = true;
                 autoDefer = false; // [NoDefer] disables auto-defer
             }
+            else if (name == EphemeralAttr)
+            {
+                deferEphemeral = true; // [Ephemeral] makes auto-defer use ephemeral: true
+            }
         }
 
         if (!isSlash && !isComponent) return null;
@@ -110,6 +116,11 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                 else if (name == NoDeferAttr && !methodHasNoDefer)
                 {
                     autoDefer = false; // [NoDefer] disables auto-defer
+                }
+                // Check for [Ephemeral] on the class level
+                else if (name == EphemeralAttr && !deferEphemeral)
+                {
+                    deferEphemeral = true; // Class-level [Ephemeral]
                 }
             }
         }
@@ -313,6 +324,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             GroupName = groupName,
             GroupDescription = groupDescription,
             AutoDefer = autoDefer,
+            DeferEphemeral = deferEphemeral,
             IsComponent = isComponent,
             ComponentId = componentId,
             ComponentPrefix = componentPrefix,
@@ -485,7 +497,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
 
             // Only use 'static' keyword if the method is actually static
             string lambdaModifier = c.IsStatic ? "static " : "";
-            return $"new global::SimpleDiscordNet.Commands.CommandHandler(HasContext: {(c.HasContext ? "true" : "false")}, AutoDefer: {(c.AutoDefer ? "true" : "false")}, Invoke: {lambdaModifier}async (ctx, ct) => {{ {call} }})";
+            return $"new global::SimpleDiscordNet.Commands.CommandHandler(HasContext: {(c.HasContext ? "true" : "false")}, AutoDefer: {(c.AutoDefer ? "true" : "false")}, DeferEphemeral: {(c.DeferEphemeral ? "true" : "false")}, Invoke: {lambdaModifier}async (ctx, ct) => {{ {call} }})";
         }
 
         var sb = new StringBuilder();
@@ -556,7 +568,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             if (!c.IsStatic && instExpr is null) continue;
             string invoker = c.HasContext ? (c.IsStatic ? $"static async (ctx, ct) => {{ var _r = {c.ContainingType}.{c.MethodName}(ctx); if (_r is System.Threading.Tasks.Task t) await t.ConfigureAwait(false); }}" : $"async (ctx, ct) => {{ var _r = __InstHolder_{SanitizeId(c.ContainingType)}.Value.{c.MethodName}(ctx); if (_r is System.Threading.Tasks.Task t) await t.ConfigureAwait(false); }}")
                                           : (c.IsStatic ? $"static async (ctx, ct) => {{ var _r = {c.ContainingType}.{c.MethodName}(); if (_r is System.Threading.Tasks.Task t) await t.ConfigureAwait(false); }}" : $"async (ctx, ct) => {{ var _r = __InstHolder_{SanitizeId(c.ContainingType)}.Value.{c.MethodName}(); if (_r is System.Threading.Tasks.Task t) await t.ConfigureAwait(false); }}");
-            sb.AppendLine($"            new global::SimpleDiscordNet.Commands.ComponentHandler(\"{c.ComponentId}\", {c.ComponentPrefix.ToString().ToLowerInvariant()}, {c.HasContext.ToString().ToLowerInvariant()}, {c.AutoDefer.ToString().ToLowerInvariant()}, {invoker}),");
+            sb.AppendLine($"            new global::SimpleDiscordNet.Commands.ComponentHandler(\"{c.ComponentId}\", {c.ComponentPrefix.ToString().ToLowerInvariant()}, {c.HasContext.ToString().ToLowerInvariant()}, {c.AutoDefer.ToString().ToLowerInvariant()}, {c.DeferEphemeral.ToString().ToLowerInvariant()}, {invoker}),");
         }
         sb.AppendLine("        };");
 
@@ -753,6 +765,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         public string? GroupName { get; set; }
         public string? GroupDescription { get; set; }
         public bool AutoDefer { get; set; }
+        public bool DeferEphemeral { get; set; }
         public bool IsComponent { get; set; }
         public string? ComponentId { get; set; }
         public bool ComponentPrefix { get; set; }
