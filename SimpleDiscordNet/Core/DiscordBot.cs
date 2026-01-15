@@ -903,6 +903,34 @@ public sealed class DiscordBot : IDiscordBot
         => _rest.UnbanMemberAsync(guildId, userId, ct);
 
     /// <summary>
+    /// Gets a list of banned users in the guild. Requires BAN_MEMBERS permission.
+    /// Example: var bans = await bot.GetGuildBansAsync(guildId);
+    /// </summary>
+    public Task<IEnumerable<DiscordBan>> GetGuildBansAsync(string guildId, CancellationToken ct = default)
+        => _rest.GetGuildBansAsync(guildId, ct);
+
+    /// <summary>
+    /// Gets a list of banned users in the guild. Requires BAN_MEMBERS permission.
+    /// Example: var bans = await bot.GetGuildBansAsync(guildId);
+    /// </summary>
+    public Task<IEnumerable<DiscordBan>> GetGuildBansAsync(ulong guildId, CancellationToken ct = default)
+        => _rest.GetGuildBansAsync(guildId.ToString(), ct);
+
+    /// <summary>
+    /// Gets a specific ban by user ID. Requires BAN_MEMBERS permission.
+    /// Example: var ban = await bot.GetGuildBanAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordBan?> GetGuildBanAsync(string guildId, string userId, CancellationToken ct = default)
+        => _rest.GetGuildBanAsync(guildId, userId, ct);
+
+    /// <summary>
+    /// Gets a specific ban by user ID. Requires BAN_MEMBERS permission.
+    /// Example: var ban = await bot.GetGuildBanAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordBan?> GetGuildBanAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => _rest.GetGuildBanAsync(guildId.ToString(), userId.ToString(), ct);
+
+    /// <summary>
     /// Timeouts a guild member for a specified duration.
     /// Example: await bot.TimeoutMemberAsync(guildId, userId, TimeSpan.FromHours(1));
     /// </summary>
@@ -958,6 +986,62 @@ public sealed class DiscordBot : IDiscordBot
     public Task<DiscordMember?> UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
         => ModifyGuildMemberAsync(guildId, userId, mute: false, ct: ct);
 
+    /// <summary>
+    /// Deafens a guild member in voice channels (prevents them from hearing audio).
+    /// Example: await bot.DeafenMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> DeafenMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, deaf: true, ct: ct);
+
+    /// <summary>
+    /// Deafens a guild member in voice channels (prevents them from hearing audio).
+    /// Example: await bot.DeafenMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> DeafenMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, deaf: true, ct: ct);
+
+    /// <summary>
+    /// Undeafens a guild member in voice channels (allows them to hear audio).
+    /// Example: await bot.UndeafenMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> UndeafenMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, deaf: false, ct: ct);
+
+    /// <summary>
+    /// Undeafens a guild member in voice channels (allows them to hear audio).
+    /// Example: await bot.UndeafenMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> UndeafenMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, deaf: false, ct: ct);
+
+    /// <summary>
+    /// Moves a guild member to a different voice channel. Member must be connected to voice.
+    /// Example: await bot.MoveMemberToVoiceChannelAsync(guildId, userId, targetChannelId);
+    /// </summary>
+    public Task<DiscordMember?> MoveMemberToVoiceChannelAsync(string guildId, string userId, string channelId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, channelId: channelId, ct: ct);
+
+    /// <summary>
+    /// Moves a guild member to a different voice channel. Member must be connected to voice.
+    /// Example: await bot.MoveMemberToVoiceChannelAsync(guildId, userId, targetChannelId);
+    /// </summary>
+    public Task<DiscordMember?> MoveMemberToVoiceChannelAsync(ulong guildId, ulong userId, ulong channelId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, channelId: channelId, ct: ct);
+
+    /// <summary>
+    /// Disconnects a guild member from voice channels by moving them to null channel.
+    /// Example: await bot.DisconnectMemberFromVoiceAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> DisconnectMemberFromVoiceAsync(string guildId, string userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, channelId: null, ct: ct);
+
+    /// <summary>
+    /// Disconnects a guild member from voice channels by moving them to null channel.
+    /// Example: await bot.DisconnectMemberFromVoiceAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> DisconnectMemberFromVoiceAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, channelId: null, ct: ct);
+
     // ---- Role assignment ----
 
     /// <summary>
@@ -973,6 +1057,32 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task RemoveRoleFromMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default)
         => _rest.RemoveMemberRoleAsync(guildId, userId, roleId, ct);
+
+    // ---- Audit log ----
+
+    /// <summary>
+    /// Gets the audit log for a guild. Requires VIEW_AUDIT_LOG permission.
+    /// Example: var auditLog = await bot.GetAuditLogAsync(guildId, limit: 100);
+    /// </summary>
+    /// <param name="userId">Filter by user ID who performed the action</param>
+    /// <param name="actionType">Filter by action type (see AuditLogAction enum)</param>
+    /// <param name="before">Filter entries before this entry ID</param>
+    /// <param name="after">Filter entries after this entry ID</param>
+    /// <param name="limit">Maximum number of entries to return (1-100, default 50)</param>
+    public Task<DiscordAuditLog?> GetAuditLogAsync(string guildId, ulong? userId = null, int? actionType = null, ulong? before = null, ulong? after = null, int limit = 50, CancellationToken ct = default)
+        => _rest.GetAuditLogAsync(guildId, userId, actionType, before, after, limit, ct);
+
+    /// <summary>
+    /// Gets the audit log for a guild. Requires VIEW_AUDIT_LOG permission.
+    /// Example: var auditLog = await bot.GetAuditLogAsync(guildId, limit: 100);
+    /// </summary>
+    /// <param name="userId">Filter by user ID who performed the action</param>
+    /// <param name="actionType">Filter by action type (see AuditLogAction enum)</param>
+    /// <param name="before">Filter entries before this entry ID</param>
+    /// <param name="after">Filter entries after this entry ID</param>
+    /// <param name="limit">Maximum number of entries to return (1-100, default 50)</param>
+    public Task<DiscordAuditLog?> GetAuditLogAsync(ulong guildId, ulong? userId = null, int? actionType = null, ulong? before = null, ulong? after = null, int limit = 50, CancellationToken ct = default)
+        => _rest.GetAuditLogAsync(guildId.ToString(), userId, actionType, before, after, limit, ct);
 
     // ---- Typing indicator ----
 
@@ -1073,7 +1183,7 @@ public sealed class DiscordBot : IDiscordBot
             }
 
             // Update cache with fetched member
-            if (ulong.TryParse(guildId, out ulong gid) && ulong.TryParse(userId, out ulong uid))
+            if (_cache is not null && ulong.TryParse(guildId, out ulong gid) && ulong.TryParse(userId, out ulong uid))
             {
                 _cache.UpsertMember(gid, member);
             }
@@ -1534,8 +1644,12 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     private void OnGuildAuditLogEntryCreate(object? sender, GatewayAuditLogEvent e)
     {
         DiscordGuild guild = _cache.TryGetGuild(e.GuildId, out DiscordGuild g) ? g : new DiscordGuild { Id = e.GuildId, Name = string.Empty };
-        DiscordUser? user = e.Entry.UserId.HasValue && _cache.TryGetUser(e.Entry.UserId.Value, out DiscordUser u) ? u : null;
-        DiscordUser? targetUser = e.Entry.TargetId.HasValue && _cache.TryGetUser(e.Entry.TargetId.Value, out DiscordUser tu) ? tu : null;
+        DiscordUser? user = null;
+        if (e.Entry.user_id != null && ulong.TryParse(e.Entry.user_id, out ulong uid) && _cache.TryGetUser(uid, out DiscordUser u))
+            user = u;
+        DiscordUser? targetUser = null;
+        if (e.Entry.target_id != null && ulong.TryParse(e.Entry.target_id, out ulong tid) && _cache.TryGetUser(tid, out DiscordUser tu))
+            targetUser = tu;
 
         AuditLogEvent evt = new()
         {

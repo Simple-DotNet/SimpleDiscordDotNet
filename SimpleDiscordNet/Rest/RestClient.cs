@@ -687,6 +687,18 @@ internal sealed class RestClient : IDisposable
     }
 
     /// <summary>
+    /// Gets a list of banned users in a guild.
+    /// </summary>
+    public Task<IEnumerable<DiscordBan>> GetGuildBansAsync(string guildId, CancellationToken ct = default)
+        => GetAsync<IEnumerable<DiscordBan>>($"/guilds/{guildId}/bans", ct)!;
+
+    /// <summary>
+    /// Gets a specific ban by user ID.
+    /// </summary>
+    public Task<DiscordBan?> GetGuildBanAsync(string guildId, string userId, CancellationToken ct = default)
+        => GetAsync<DiscordBan>($"/guilds/{guildId}/bans/{userId}", ct);
+
+    /// <summary>
     /// Unban a user from a guild.
     /// </summary>
     public async Task UnbanMemberAsync(string guildId, string userId, CancellationToken ct)
@@ -698,6 +710,21 @@ internal sealed class RestClient : IDisposable
             _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /guilds/{guildId}/bans/{userId}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// Gets the audit log for a guild.
+    /// </summary>
+    public Task<DiscordAuditLog?> GetAuditLogAsync(string guildId, ulong? userId = null, int? actionType = null, ulong? before = null, ulong? after = null, int limit = 50, CancellationToken ct = default)
+    {
+        var queryParams = new List<string> { $"limit={limit}" };
+        if (userId.HasValue) queryParams.Add($"user_id={userId.Value}");
+        if (actionType.HasValue) queryParams.Add($"action_type={actionType.Value}");
+        if (before.HasValue) queryParams.Add($"before={before.Value}");
+        if (after.HasValue) queryParams.Add($"after={after.Value}");
+
+        string query = string.Join("&", queryParams);
+        return GetAsync<DiscordAuditLog>($"/guilds/{guildId}/audit-logs?{query}", ct);
     }
 
     // ---- Role assignment ----

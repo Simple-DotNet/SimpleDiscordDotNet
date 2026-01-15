@@ -1,31 +1,56 @@
 namespace SimpleDiscordNet.Entities;
 
 /// <summary>
+/// Represents the full audit log response from Discord API.
+/// Contains audit log entries and associated users/resources.
+/// </summary>
+public sealed record DiscordAuditLog
+{
+    /// <summary>List of audit log entries</summary>
+    public required DiscordAuditLogEntry[] audit_log_entries { get; init; }
+
+    /// <summary>List of users found in the audit log</summary>
+    public DiscordUser[]? users { get; init; }
+
+    /// <summary>List of webhooks found in the audit log</summary>
+    public object[]? webhooks { get; init; }
+
+    /// <summary>List of guild scheduled events found in the audit log</summary>
+    public object[]? guild_scheduled_events { get; init; }
+
+    /// <summary>List of threads found in the audit log</summary>
+    public DiscordChannel[]? threads { get; init; }
+
+    /// <summary>List of integrations found in the audit log</summary>
+    public object[]? integrations { get; init; }
+}
+
+/// <summary>
 /// Represents a Discord audit log entry.
 /// Audit logs track administrative actions in a guild.
 /// </summary>
 public sealed record DiscordAuditLogEntry
 {
     /// <summary>ID of the affected entity (channel, user, role, etc.)</summary>
-    public ulong? TargetId { get; init; }
+    public string? target_id { get; init; }
 
     /// <summary>Changes made to the target</summary>
-    public AuditLogChange[]? Changes { get; init; }
+    public AuditLogChange[]? changes { get; init; }
 
-    /// <summary>User who made the changes</summary>
-    public ulong? UserId { get; init; }
+    /// <summary>User ID who made the changes</summary>
+    public string? user_id { get; init; }
 
     /// <summary>ID of the entry</summary>
-    public required ulong Id { get; init; }
+    public required string id { get; init; }
 
     /// <summary>Type of action that occurred</summary>
-    public required int ActionType { get; init; }
+    public required int action_type { get; init; }
 
     /// <summary>Additional info for certain action types</summary>
-    public AuditLogOptions? Options { get; init; }
+    public AuditLogOptions? options { get; init; }
 
     /// <summary>Reason for the change (0-512 characters)</summary>
-    public string? Reason { get; init; }
+    public string? reason { get; init; }
 }
 
 /// <summary>
@@ -34,13 +59,13 @@ public sealed record DiscordAuditLogEntry
 public sealed record AuditLogChange
 {
     /// <summary>New value of the key</summary>
-    public object? NewValue { get; init; }
+    public object? new_value { get; init; }
 
     /// <summary>Old value of the key</summary>
-    public object? OldValue { get; init; }
+    public object? old_value { get; init; }
 
     /// <summary>Name of audit log change key</summary>
-    public required string Key { get; init; }
+    public required string key { get; init; }
 }
 
 /// <summary>
@@ -49,28 +74,28 @@ public sealed record AuditLogChange
 public sealed record AuditLogOptions
 {
     /// <summary>Number of days after which inactive members were kicked</summary>
-    public int? DeleteMemberDays { get; init; }
+    public int? delete_member_days { get; init; }
 
     /// <summary>Number of members removed by the prune</summary>
-    public int? MembersRemoved { get; init; }
+    public int? members_removed { get; init; }
 
     /// <summary>Channel in which the entities were targeted</summary>
-    public ulong? ChannelId { get; init; }
+    public string? channel_id { get; init; }
 
     /// <summary>ID of the message that was targeted</summary>
-    public ulong? MessageId { get; init; }
+    public string? message_id { get; init; }
 
     /// <summary>Number of entities that were targeted</summary>
-    public int? Count { get; init; }
+    public int? count { get; init; }
 
     /// <summary>ID of the overwritten entity</summary>
-    public ulong? Id { get; init; }
+    public string? id { get; init; }
 
     /// <summary>Type of overwritten entity (role or member)</summary>
-    public string? Type { get; init; }
+    public string? type { get; init; }
 
     /// <summary>Name of the role</summary>
-    public string? RoleName { get; init; }
+    public string? role_name { get; init; }
 }
 
 /// <summary>

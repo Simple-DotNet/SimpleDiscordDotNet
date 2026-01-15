@@ -505,13 +505,13 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                 ulong guildId = data.GetProperty("guild_id").GetDiscordId();
                 DiscordAuditLogEntry entry = new()
                 {
-                    Id = data.GetProperty("id").GetDiscordId(),
-                    ActionType = data.GetProperty("action_type").GetInt32(),
-                    TargetId = data.TryGetProperty("target_id", out JsonElement tid) && tid.ValueKind != JsonValueKind.Null
-                        ? tid.GetDiscordIdNullable() : null,
-                    UserId = data.TryGetProperty("user_id", out JsonElement uid) && uid.ValueKind != JsonValueKind.Null
-                        ? uid.GetDiscordIdNullable() : null,
-                    Reason = data.TryGetProperty("reason", out JsonElement r) && r.ValueKind != JsonValueKind.Null
+                    id = data.GetProperty("id").GetString() ?? "",
+                    action_type = data.GetProperty("action_type").GetInt32(),
+                    target_id = data.TryGetProperty("target_id", out JsonElement tid) && tid.ValueKind != JsonValueKind.Null
+                        ? tid.GetString() : null,
+                    user_id = data.TryGetProperty("user_id", out JsonElement uid) && uid.ValueKind != JsonValueKind.Null
+                        ? uid.GetString() : null,
+                    reason = data.TryGetProperty("reason", out JsonElement r) && r.ValueKind != JsonValueKind.Null
                         ? r.GetString() : null
                 };
                 GatewayAuditLogEvent evt = new() { GuildId = guildId, Entry = entry };

@@ -517,7 +517,7 @@ internal sealed class EntityCache
     public bool TryGetGuild(ulong guildId, out DiscordGuild guild) => _guilds.TryGetValue(guildId, out guild!);
     public bool TryGetUser(ulong userId, out DiscordUser user)
     {
-        if (_users.TryGetValue(userId, out user))
+        if (_users.TryGetValue(userId, out user!))
             return true;
 
         foreach (ObservableConcurrentList<DiscordMember> members in _membersByGuild.Values)

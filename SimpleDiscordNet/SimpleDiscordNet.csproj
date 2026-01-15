@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.6.8</Version>
+        <Version>1.8.0</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.6.8: Cache-first entity retrieval with optional useCache parameter - Added optional useCache parameter (default true) to GetUserAsync, GetGuildMemberAsync, GetGuildAsync, GetChannelAsync, GetGuildChannelsAsync, and GetGuildRolesAsync methods. These methods now check the entity cache first and fall back to REST API when needed, reducing unnecessary API calls while preserving backward compatibility.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.8.0: Advanced moderation and audit log features - Added member deafen/undeafen operations, voice channel move/disconnect, guild bans list retrieval, and full audit log access with filtering. All methods support both string and ulong overloads for maximum flexibility.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
