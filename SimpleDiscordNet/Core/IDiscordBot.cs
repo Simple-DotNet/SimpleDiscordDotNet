@@ -193,6 +193,36 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, string? nick = null, IEnumerable<string>? roles = null, bool? mute = null, bool? deaf = null, DateTimeOffset? communicationDisabledUntil = null, ulong? channelId = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Bans a user from the guild. Requires BAN_MEMBERS permission.
+    /// </summary>
+    Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Unbans a user from the guild. Requires BAN_MEMBERS permission.
+    /// </summary>
+    Task UnbanMemberAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets a list of banned users in the guild. Requires BAN_MEMBERS permission.
+    /// </summary>
+    Task<IEnumerable<DiscordBan>> GetGuildBansAsync(string guildId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets a list of banned users in the guild. Requires BAN_MEMBERS permission.
+    /// </summary>
+    Task<IEnumerable<DiscordBan>> GetGuildBansAsync(ulong guildId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets a specific ban by user ID. Requires BAN_MEMBERS permission.
+    /// </summary>
+    Task<DiscordBan?> GetGuildBanAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets a specific ban by user ID. Requires BAN_MEMBERS permission.
+    /// </summary>
+    Task<DiscordBan?> GetGuildBanAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
     /// Timeouts a guild member for a specified duration.
     /// </summary>
     Task<DiscordMember?> TimeoutMemberAsync(string guildId, string userId, TimeSpan duration, CancellationToken ct = default);
@@ -231,6 +261,56 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     /// Unmutes a guild member in voice channels.
     /// </summary>
     Task<DiscordMember?> UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deafens a guild member in voice channels (prevents them from hearing audio).
+    /// </summary>
+    Task<DiscordMember?> DeafenMemberAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deafens a guild member in voice channels (prevents them from hearing audio).
+    /// </summary>
+    Task<DiscordMember?> DeafenMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Undeafens a guild member in voice channels (allows them to hear audio).
+    /// </summary>
+    Task<DiscordMember?> UndeafenMemberAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Undeafens a guild member in voice channels (allows them to hear audio).
+    /// </summary>
+    Task<DiscordMember?> UndeafenMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves a guild member to a different voice channel. Member must be connected to voice.
+    /// </summary>
+    Task<DiscordMember?> MoveMemberToVoiceChannelAsync(string guildId, string userId, string channelId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves a guild member to a different voice channel. Member must be connected to voice.
+    /// </summary>
+    Task<DiscordMember?> MoveMemberToVoiceChannelAsync(ulong guildId, ulong userId, ulong channelId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Disconnects a guild member from voice channels by moving them to null channel.
+    /// </summary>
+    Task<DiscordMember?> DisconnectMemberFromVoiceAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Disconnects a guild member from voice channels by moving them to null channel.
+    /// </summary>
+    Task<DiscordMember?> DisconnectMemberFromVoiceAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets the audit log for a guild. Requires VIEW_AUDIT_LOG permission.
+    /// </summary>
+    Task<DiscordAuditLog?> GetAuditLogAsync(string guildId, ulong? userId = null, int? actionType = null, ulong? before = null, ulong? after = null, int limit = 50, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets the audit log for a guild. Requires VIEW_AUDIT_LOG permission.
+    /// </summary>
+    Task<DiscordAuditLog?> GetAuditLogAsync(ulong guildId, ulong? userId = null, int? actionType = null, ulong? before = null, ulong? after = null, int limit = 50, CancellationToken ct = default);
 
     /// <summary>
     /// Sends a direct message to a user by creating a DM channel and sending a message.

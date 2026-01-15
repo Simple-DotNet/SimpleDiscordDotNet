@@ -90,7 +90,7 @@ internal sealed class CommandPermissionService : ICommandPermissions
                 {
                     if (!rule(context))
                     {
-                        _logger.Log(LogLevel.Debug, $"Permission denied for command '{commandName}' in guild {guildId} for user {context.User.Id}");
+                        _logger.Log(LogLevel.Debug, $"Permission denied for command '{commandName}' in guild {guildId} for user {context.User?.Id}");
                         return false;
                     }
                 }

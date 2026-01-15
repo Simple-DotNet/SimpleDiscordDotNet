@@ -21,8 +21,8 @@ public sealed record AuditLogEvent
     public DiscordUser? TargetUser { get; init; }
 
     /// <summary>Convenience property for the action type as an enum.</summary>
-    public AuditLogAction Action => (AuditLogAction)Entry.ActionType;
+    public AuditLogAction Action => (AuditLogAction)Entry.action_type;
 
     /// <summary>Returns true if this action has a reason provided.</summary>
-    public bool HasReason => !string.IsNullOrEmpty(Entry.Reason);
+    public bool HasReason => !string.IsNullOrEmpty(Entry.reason);
 }
