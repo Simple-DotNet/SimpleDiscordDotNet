@@ -72,7 +72,9 @@ await Task.Delay(Timeout.Infinite);
 - [Beginner's Guide](./wiki/Beginners-Guide.md) - **NEW!** Step-by-step guide for Discord bot beginners
 - [Configuration](./wiki/Configuration.md) - Builder patterns, DI, intents
 - [Commands](./wiki/Commands.md) - Slash commands, components, modals
-- [Working with Entities](./wiki/Entities.md) - **NEW!** Channels, guilds, members, messages, and roles
+- [Permissions](./wiki/Permissions.md) - **NEW v1.8.0!** Dual-layer command permissions
+- [Moderation](./wiki/Moderation.md) - **NEW v1.8.0!** Bans, kicks, timeouts, voice control, audit logs
+- [Working with Entities](./wiki/Entities.md) - Channels, guilds, members, messages, and roles
 - [Events](./wiki/Events.md) - Gateway events and logging
 - [Sharding](./wiki/Sharding.md) - Horizontal scaling with distributed sharding
 - [API Reference](./wiki/API-Reference.md) - Complete API documentation
@@ -117,7 +119,46 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
-### v1.5.0 - Complete Gateway Events (2025-12-24)
+### v1.8.0 - Advanced Moderation & Audit Log Features (2025-01-15)
+- ✅ **Voice control operations** - Deafen/undeafen members, move between channels, disconnect from voice
+  - `bot.DeafenMemberAsync()`, `bot.UndeafenMemberAsync()`
+  - `bot.MoveMemberToVoiceChannelAsync()`, `bot.DisconnectMemberFromVoiceAsync()`
+- ✅ **Ban management** - Retrieve guild bans with reasons
+  - `bot.GetGuildBansAsync()` - Get all bans
+  - `bot.GetGuildBanAsync()` - Get specific ban
+  - New `DiscordBan` entity with user and reason
+- ✅ **Audit log access** - Complete audit log with advanced filtering
+  - `bot.GetAuditLogAsync()` with filters: userId, actionType, before, after, limit
+  - Enhanced `DiscordAuditLog` entity with audit_log_entries, users, threads
+  - Full `AuditLogAction` enum for all Discord actions
+- ✅ **Bug fixes** - Resolved 3 nullable reference warnings (CS8602, CS8601)
+- ✅ **API compatibility** - All methods support both string and ulong overloads
+- 📖 New [Moderation Guide](./wiki/Moderation.md) with comprehensive examples
+
+### v1.6.8 - Dual-Layer Command Permissions (2025-01-15)
+- ✅ **Discord-level permissions** - `[RequirePermissions]` attribute for default visibility
+  - Sets `default_member_permissions` during command registration
+  - Integrated with source generator for zero-reflection operation
+- ✅ **Runtime per-guild rules** - `bot.Permissions` API for dynamic restrictions
+  - `RegisterGuildRule()` for custom permission checks
+  - `CheckPermission()` evaluates rules before command execution
+  - Thread-safe with ConcurrentDictionary storage
+- ✅ **100% AOT compatible** - Delegate-based, no reflection
+- ✅ **Shard-safe** - Works across all sharding modes
+- ✅ **Beginner-friendly** - Simple attribute + delegate API
+- 📖 New [Permissions Guide](./wiki/Permissions.md) with database integration examples
+
+### v1.6.0 - Cache-First Entity Retrieval & Live Collections (2025-01-11)
+- ✅ **Cache-first entity retrieval** - Optional `useCache` parameter (default: true)
+  - `GetUserAsync()`, `GetGuildMemberAsync()`, `GetGuildAsync()`, `GetChannelAsync()`
+  - Reduces unnecessary API calls while maintaining backward compatibility
+- ✅ **Live observable collections** - Thread-safe `INotifyCollectionChanged` for UI binding
+  - `bot.GetLiveGuilds()`, `guild.GetLiveChannels()`, `guild.GetLiveMembers()`
+  - WPF/MAUI/Avalonia support with `SynchronizationContext`
+  - Real-time updates from gateway events
+- ✅ **API completeness** - Added missing methods: `GetGuildChannelsAsync()`, `GetGuildRolesAsync()`
+
+### v1.5.0 - Complete Gateway Events (2024-12-24)
 - ✅ **Added missing Discord gateway events** - All previously unwired events are now fully exposed:
   - `InteractionCreated` – raised for every interaction (slash commands, components, modals)
   - `GuildEmojisUpdated` – emoji updates within a guild
