@@ -33,22 +33,25 @@ public interface IDiscordContextOperations
     /// <summary>
     /// Retrieves a guild by its id.
     /// </summary>
-    Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default);
-    Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve the guild from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default, bool useCache = true);
+    Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves all channels for a guild.
     /// </summary>
-    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default);
-    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default);
-    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(DiscordGuild guild, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default, bool useCache = true);
+    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default, bool useCache = true);
+    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(DiscordGuild guild, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves all roles for a guild.
     /// </summary>
-    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default);
-    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default);
-    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(DiscordGuild guild, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default, bool useCache = true);
+    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default, bool useCache = true);
+    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(DiscordGuild guild, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Lists members of a guild with pagination support.
@@ -66,6 +69,30 @@ public interface IDiscordContextOperations
     /// Removes a role from a guild member.
     /// </summary>
     Task RemoveRoleFromMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Timeouts a guild member for a specified duration.
+    /// </summary>
+    Task TimeoutMemberAsync(string guildId, string userId, TimeSpan duration, CancellationToken ct = default);
+    Task TimeoutMemberAsync(ulong guildId, ulong userId, TimeSpan duration, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes a timeout from a guild member.
+    /// </summary>
+    Task RemoveTimeoutMemberAsync(string guildId, string userId, CancellationToken ct = default);
+    Task RemoveTimeoutMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Mutes a guild member in voice channels.
+    /// </summary>
+    Task MuteMemberAsync(string guildId, string userId, CancellationToken ct = default);
+    Task MuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Unmutes a guild member in voice channels.
+    /// </summary>
+    Task UnmuteMemberAsync(string guildId, string userId, CancellationToken ct = default);
+    Task UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
 
     /// <summary>
     /// Sends a direct message to a user by creating a DM channel and sending a message.

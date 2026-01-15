@@ -28,6 +28,11 @@ public sealed class ApplicationCommandDefinition
 
     // Autocomplete flag (cannot be used with choices)
     public bool? autocomplete { get; set; }
+
+    // Permission restrictions (sets default member permissions as a bitset string)
+    // Example: "2048" for KickMembers, "0" to restrict to admins only
+    // Reference: https://discord.com/developers/docs/topics/permissions
+    public string? default_member_permissions { get; set; }
 }
 
 public sealed class CommandChoice

@@ -22,6 +22,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
     private const string MentionableSelectHandlerAttr = "SimpleDiscordNet.Commands.MentionableSelectHandlerAttribute";
     private const string NoDeferAttr = "SimpleDiscordNet.Commands.NoDeferAttribute";
     private const string EphemeralAttr = "SimpleDiscordNet.Commands.EphemeralAttribute";
+    private const string RequirePermissionsAttr = "SimpleDiscordNet.Commands.RequirePermissionsAttribute";
     private const string CommandOptionAttr = "SimpleDiscordNet.Commands.CommandOptionAttribute";
     private const string CommandChoiceAttr = "SimpleDiscordNet.Commands.CommandChoiceAttribute";
 
@@ -55,6 +56,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         bool autoDefer = true; // default: auto-defer enabled, use [NoDefer] to disable
         bool methodHasNoDefer = false; // track if method has explicit [NoDefer]
         bool deferEphemeral = false; // track if method has [Ephemeral]
+        ulong? requiredPermissions = null; // track [RequirePermissions]
         string? componentId = null;
         bool componentPrefix = false;
 
@@ -91,6 +93,14 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             else if (name == EphemeralAttr)
             {
                 deferEphemeral = true; // [Ephemeral] makes auto-defer use ephemeral: true
+            }
+            else if (name == RequirePermissionsAttr)
+            {
+                // Read the Permissions property (PermissionFlags enum as ulong)
+                if (ad.ConstructorArguments.Length >= 1 && ad.ConstructorArguments[0].Value is ulong perms)
+                {
+                    requiredPermissions = perms;
+                }
             }
         }
 
@@ -325,6 +335,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             GroupDescription = groupDescription,
             AutoDefer = autoDefer,
             DeferEphemeral = deferEphemeral,
+            RequiredPermissions = requiredPermissions,
             IsComponent = isComponent,
             ComponentId = componentId,
             ComponentPrefix = componentPrefix,
@@ -379,6 +390,14 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             defsBuilder.AppendLine("        type = 1,");
             var gdesc = g.Value.Count > 0 && !string.IsNullOrWhiteSpace(g.Value[0]?.GroupDescription) ? g.Value[0].GroupDescription!.Replace("\"", "\\\"") : "group";
             defsBuilder.AppendLine($"        description = \"{gdesc}\",");
+
+            // Add default_member_permissions if any command in the group has RequiredPermissions
+            var groupPerms = g.Value.FirstOrDefault(c => c.RequiredPermissions.HasValue)?.RequiredPermissions;
+            if (groupPerms.HasValue)
+            {
+                defsBuilder.AppendLine($"        default_member_permissions = \"{groupPerms.Value}\",");
+            }
+
             defsBuilder.AppendLine("        options = new global::SimpleDiscordNet.Models.ApplicationCommandDefinition[] {");
 
             var seen = new HashSet<(string, string)>();
@@ -403,7 +422,8 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
 
             var desc = string.IsNullOrWhiteSpace(u.SlashDescription) ? "command" : u.SlashDescription!.Replace("\"", "\\\"");
             var optsArray = BuildOptionsArray(u.Options);
-            defsBuilder.AppendLine($"    new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{u.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray} }},");
+            var permsField = u.RequiredPermissions.HasValue ? $", default_member_permissions = \"{u.RequiredPermissions.Value}\"" : "";
+            defsBuilder.AppendLine($"    new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{u.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray}{permsField} }},");
         }
         defsBuilder.AppendLine("}");
 
@@ -766,6 +786,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         public string? GroupDescription { get; set; }
         public bool AutoDefer { get; set; }
         public bool DeferEphemeral { get; set; }
+        public ulong? RequiredPermissions { get; set; } // Discord permission flags as ulong
         public bool IsComponent { get; set; }
         public string? ComponentId { get; set; }
         public bool ComponentPrefix { get; set; }

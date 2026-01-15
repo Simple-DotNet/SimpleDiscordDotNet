@@ -1,4 +1,5 @@
 using System.Text.Json;
+using SimpleDiscordNet.Commands;
 using SimpleDiscordNet.Entities;
 using SimpleDiscordNet.Models;
 using SimpleDiscordNet.Primitives;
@@ -11,6 +12,11 @@ namespace SimpleDiscordNet;
 /// </summary>
 public interface IDiscordBot : IAsyncDisposable, IDisposable
 {
+    /// <summary>
+    /// Manage custom per-guild command permissions at runtime.
+    /// </summary>
+    ICommandPermissions Permissions { get; }
+
     // Lifecycle
     /// <summary>
     /// Starts the bot and begins processing events asynchronously.
@@ -82,42 +88,50 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     /// <summary>
     /// Retrieves a guild by its id.
     /// </summary>
-    Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve the guild from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves a guild by its id.
     /// </summary>
-    Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve the guild from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves all channels for a guild.
     /// </summary>
-    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves all channels for a guild.
     /// </summary>
-    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves all channels for a guild.
     /// </summary>
-    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(DiscordGuild guild, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(DiscordGuild guild, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves all roles for a guild.
     /// </summary>
-    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves all roles for a guild.
     /// </summary>
-    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Retrieves all roles for a guild.
     /// </summary>
-    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(DiscordGuild guild, CancellationToken ct = default);
+    /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(DiscordGuild guild, CancellationToken ct = default, bool useCache = true);
 
     /// <summary>
     /// Lists members of a guild with pagination support.
@@ -135,6 +149,30 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     Task<IEnumerable<DiscordMember>> ListGuildMembersAsync(DiscordGuild guild, int limit = 1000, string? after = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Gets a user by their ID.
+    /// </summary>
+    /// <param name="useCache">Whether to attempt to retrieve the user from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<DiscordUser?> GetUserAsync(string userId, CancellationToken ct = default, bool useCache = true);
+
+    /// <summary>
+    /// Gets a user by their ID.
+    /// </summary>
+    /// <param name="useCache">Whether to attempt to retrieve the user from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<DiscordUser?> GetUserAsync(ulong userId, CancellationToken ct = default, bool useCache = true);
+
+    /// <summary>
+    /// Gets a guild member by guild ID and user ID.
+    /// </summary>
+    /// <param name="useCache">Whether to attempt to retrieve the member from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<DiscordMember?> GetGuildMemberAsync(string guildId, string userId, CancellationToken ct = default, bool useCache = true);
+
+    /// <summary>
+    /// Gets a guild member by guild ID and user ID.
+    /// </summary>
+    /// <param name="useCache">Whether to attempt to retrieve the member from cache first (default: true). If false, always fetches from Discord API.</param>
+    Task<DiscordMember?> GetGuildMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default, bool useCache = true);
+
+    /// <summary>
     /// Adds a role to a guild member.
     /// </summary>
     Task AddRoleToMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default);
@@ -143,6 +181,56 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     /// Removes a role from a guild member.
     /// </summary>
     Task RemoveRoleFromMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Modifies a guild member (nickname, roles, voice mute/deaf, timeout, etc).
+    /// </summary>
+    Task<DiscordMember?> ModifyGuildMemberAsync(string guildId, string userId, string? nick = null, IEnumerable<string>? roles = null, bool? mute = null, bool? deaf = null, DateTimeOffset? communicationDisabledUntil = null, string? channelId = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Modifies a guild member (nickname, roles, voice mute/deaf, timeout, etc).
+    /// </summary>
+    Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, string? nick = null, IEnumerable<string>? roles = null, bool? mute = null, bool? deaf = null, DateTimeOffset? communicationDisabledUntil = null, ulong? channelId = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Timeouts a guild member for a specified duration.
+    /// </summary>
+    Task<DiscordMember?> TimeoutMemberAsync(string guildId, string userId, TimeSpan duration, CancellationToken ct = default);
+
+    /// <summary>
+    /// Timeouts a guild member for a specified duration.
+    /// </summary>
+    Task<DiscordMember?> TimeoutMemberAsync(ulong guildId, ulong userId, TimeSpan duration, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes a timeout from a guild member.
+    /// </summary>
+    Task<DiscordMember?> RemoveTimeoutMemberAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes a timeout from a guild member.
+    /// </summary>
+    Task<DiscordMember?> RemoveTimeoutMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Mutes a guild member in voice channels.
+    /// </summary>
+    Task<DiscordMember?> MuteMemberAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Mutes a guild member in voice channels.
+    /// </summary>
+    Task<DiscordMember?> MuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Unmutes a guild member in voice channels.
+    /// </summary>
+    Task<DiscordMember?> UnmuteMemberAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Unmutes a guild member in voice channels.
+    /// </summary>
+    Task<DiscordMember?> UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
 
     /// <summary>
     /// Sends a direct message to a user by creating a DM channel and sending a message.

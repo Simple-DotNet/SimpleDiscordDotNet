@@ -5,11 +5,12 @@ using SimpleDiscordNet.Rest;
 
 namespace SimpleDiscordNet.Commands;
 
-internal sealed class SlashCommandService(NativeLogger logger)
+internal sealed class SlashCommandService(NativeLogger logger, CommandPermissionService? permissionService = null)
 {
     // New delegate-based storage populated by source generator at runtime
     private readonly Dictionary<string, CommandHandler> _ungrouped = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, CommandHandler>> _grouped = new(StringComparer.Ordinal);
+    private readonly CommandPermissionService? _permissionService = permissionService;
 
     public void RegisterGenerated(string? group, string name, CommandHandler handler)
     {
@@ -90,6 +91,19 @@ internal sealed class SlashCommandService(NativeLogger logger)
         try
         {
             ctx = new InteractionContext(rest, e);
+
+            // Check custom runtime permissions before execution
+            if (_permissionService is not null)
+            {
+                bool hasPermission = _permissionService.CheckPermission(e.GuildId, top, ctx);
+                if (!hasPermission)
+                {
+                    logger.Log(LogLevel.Debug, $"User {e.Member?.User?.Id ?? e.Author?.Id} denied permission for command '{top}' in guild {e.GuildId}");
+                    await ctx.RespondAsync("❌ You don't have permission to use this command in this server.", null, true, ct).ConfigureAwait(false);
+                    return;
+                }
+            }
+
             if (handler.AutoDefer)
             {
                 await ctx.DeferAsync(ephemeral: handler.DeferEphemeral, ct).ConfigureAwait(false);
