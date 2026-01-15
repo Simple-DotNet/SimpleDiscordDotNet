@@ -3,6 +3,7 @@ using System.Text.Json;
 using SimpleDiscordNet.Logging;
 using SimpleDiscordNet.Models;
 using SimpleDiscordNet.Models.Requests;
+using SimpleDiscordNet.Entities;
 
 namespace SimpleDiscordNet.Rest;
 
@@ -606,6 +607,38 @@ internal sealed class RestClient : IDisposable
     public Task<T?> GetPinnedMessagesAsync<T>(string channelId, CancellationToken ct)
         => GetAsync<T>($"/channels/{channelId}/pins", ct);
 
+    // ---- User & Member retrieval ----
+
+    /// <summary>
+    /// Get a user by their ID.
+    /// </summary>
+    public Task<T?> GetUserAsync<T>(string userId, CancellationToken ct)
+        => GetAsync<T>($"/users/{userId}", ct);
+
+    /// <summary>
+    /// Get a guild member by guild ID and user ID.
+    /// </summary>
+    public Task<T?> GetGuildMemberAsync<T>(string guildId, string userId, CancellationToken ct)
+        => GetAsync<T>($"/guilds/{guildId}/members/{userId}", ct);
+
+    /// <summary>
+    /// Get a user by their ID (non-generic convenience wrapper).
+    /// </summary>
+    public Task<DiscordUser?> GetUserAsync(string userId, CancellationToken ct = default)
+        => GetUserAsync<DiscordUser>(userId, ct);
+
+    /// <summary>
+    /// Get a guild member by guild ID and user ID (non-generic convenience wrapper).
+    /// </summary>
+    public Task<DiscordMember?> GetGuildMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => GetGuildMemberAsync<DiscordMember>(guildId, userId, ct);
+
+    /// <summary>
+    /// Modify a guild member (non-generic convenience wrapper).
+    /// </summary>
+    public Task<DiscordMember?> ModifyGuildMemberAsync(string guildId, string userId, ModifyGuildMemberRequest request, CancellationToken ct = default)
+        => PatchGuildMemberAsync<DiscordMember>(guildId, userId, request, ct);
+
     // ---- Member moderation ----
 
     /// <summary>
@@ -620,6 +653,22 @@ internal sealed class RestClient : IDisposable
             _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /guilds/{guildId}/members/{userId}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// Modify a guild member (nick, roles, mute, deaf, timeout, etc).
+    /// </summary>
+    public async Task<T?> PatchGuildMemberAsync<T>(string guildId, string userId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/guilds/{guildId}/members/{userId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /guilds/{guildId}/members/{userId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
     }
 
     /// <summary>

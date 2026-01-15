@@ -70,12 +70,14 @@ public static class DiscordContext
     /// <summary>
     /// Gets all live channels flattened into a single enumerable. For UI binding to a specific guild's channels,
     /// use GetLiveChannelsForGuild(guildId) instead for better performance and automatic updates.
+    /// Example: var channels = DiscordContext.LiveChannels;
     /// </summary>
     public static IEnumerable<DiscordChannel> LiveChannels => s_liveChannelsProvider?.Invoke() ?? Enumerable.Empty<DiscordChannel>();
 
     /// <summary>
     /// Gets all live members flattened into a single enumerable. For UI binding to a specific guild's members,
     /// use GetLiveMembersForGuild(guildId) instead for better performance and automatic updates.
+    /// Example: var members = DiscordContext.LiveMembers;
     /// </summary>
     public static IEnumerable<DiscordMember> LiveMembers => s_liveMembersProvider?.Invoke() ?? Enumerable.Empty<DiscordMember>();
 
@@ -109,7 +111,7 @@ public static class DiscordContext
     /// <summary>All thread channels</summary>
     public static IReadOnlyList<DiscordChannel> Threads => Channels.Where(c => c.IsThread).ToArray();
 
-    /// <summary>Get all channels in a specific guild</summary>
+    /// <summary>Get all channels in a specific guild. Example: var channels = DiscordContext.GetChannelsInGuild(guildId);</summary>
     public static IReadOnlyList<DiscordChannel> GetChannelsInGuild(ulong guildId)
         => Channels.Where(c => c.Guild?.Id == guildId).ToArray();
 
@@ -121,11 +123,11 @@ public static class DiscordContext
     public static IReadOnlyList<DiscordChannel> GetChannelsInCategory(ulong categoryId)
         => Channels.Where(c => c.Parent_Id == categoryId).ToArray();
 
-    /// <summary>Get all members in a specific guild</summary>
+    /// <summary>Get all members in a specific guild. Example: var members = DiscordContext.GetMembersInGuild(guildId);</summary>
     public static IReadOnlyList<DiscordMember> GetMembersInGuild(ulong guildId)
         => Members.Where(m => m.Guild.Id == guildId).ToArray();
 
-    /// <summary>Get all roles in a specific guild</summary>
+    /// <summary>Get all roles in a specific guild. Example: var roles = DiscordContext.GetRolesInGuild(guildId);</summary>
     public static IReadOnlyList<DiscordRole> GetRolesInGuild(ulong guildId)
         => Roles.Where(r => r.Guild.Id == guildId).ToArray();
 
@@ -135,11 +137,11 @@ public static class DiscordContext
     /// </summary>
     public static DiscordGuild? Guild => Guilds.Count == 1 ? Guilds[0] : null;
 
-    /// <summary>Find a specific guild by ID (string - parses to ulong)</summary>
+    /// <summary>Find a specific guild by ID (string - parses to ulong). Example: var guild = DiscordContext.GetGuild("123456789012345678");</summary>
     public static DiscordGuild? GetGuild(string guildId)
         => ulong.TryParse(guildId, out ulong id) ? Guilds.FirstOrDefault(g => g.Id == id) : null;
 
-    /// <summary>Find a specific guild by ID (ulong)</summary>
+    /// <summary>Find a specific guild by ID (ulong). Example: var guild = DiscordContext.GetGuild(123456789012345678UL);</summary>
     public static DiscordGuild? GetGuild(ulong guildId)
         => Guilds.FirstOrDefault(g => g.Id == guildId);
 
@@ -153,15 +155,15 @@ public static class DiscordContext
         return null;
     }
 
-    /// <summary>Find a specific channel by ID (ulong)</summary>
+    /// <summary>Find a specific channel by ID (ulong). Example: var channel = DiscordContext.GetChannel(channelId);</summary>
     public static DiscordChannel? GetChannel(ulong channelId)
         => Channels.FirstOrDefault(c => c.Id == channelId);
 
-    /// <summary>Find a specific member by user ID and guild ID</summary>
+    /// <summary>Find a specific member by user ID and guild ID. Example: var member = DiscordContext.GetMember(guildId, userId);</summary>
     public static DiscordMember? GetMember(ulong guildId, ulong userId)
         => Members.FirstOrDefault(m => m.Guild.Id == guildId && m.User.Id == userId);
 
-    /// <summary>Find a specific role by ID</summary>
+    /// <summary>Find a specific role by ID. Example: var role = DiscordContext.GetRole(roleId);</summary>
     public static DiscordRole? GetRole(ulong roleId)
         => Roles.FirstOrDefault(r => r.Id == roleId);
 

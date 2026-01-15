@@ -14,6 +14,7 @@ internal sealed class EntityCache
     private readonly ObservableConcurrentDictionary<ulong, DiscordGuild> _guilds;
     private readonly ConcurrentDictionary<ulong, ObservableConcurrentList<DiscordChannel>> _channelsByGuild = new();
     private readonly ConcurrentDictionary<ulong, ObservableConcurrentList<DiscordMember>> _membersByGuild = new();
+    private readonly ConcurrentDictionary<ulong, DiscordUser> _users = new();
     private SynchronizationContext? _synchronizationContext;
 
     public EntityCache()
@@ -248,6 +249,17 @@ internal sealed class EntityCache
             }
         }
 
+        // Add users from the standalone user cache that aren't already present
+        foreach (var kvp in _users)
+        {
+            if (!distinctUsers.ContainsKey(kvp.Key))
+            {
+                // Ensure Guilds array is set (empty array for users not in any guild)
+                kvp.Value.Guilds ??= Array.Empty<DiscordGuild>();
+                distinctUsers[kvp.Key] = kvp.Value;
+            }
+        }
+
         return distinctUsers.Values.ToArray();
     }
 
@@ -412,6 +424,7 @@ internal sealed class EntityCache
                 Communication_Disabled_Until = member.Communication_Disabled_Until
             };
         }
+        _users[memberWithGuild.User.Id] = memberWithGuild.User;
 
         ObservableConcurrentList<DiscordMember> list = _membersByGuild.GetOrAdd(guildId, _ => new ObservableConcurrentList<DiscordMember>(_synchronizationContext));
 
@@ -472,6 +485,11 @@ internal sealed class EntityCache
         guild.Roles = newRoles;
     }
 
+    public void UpsertUser(DiscordUser user)
+    {
+        _users[user.Id] = user;
+    }
+
     public void RemoveRole(ulong guildId, ulong roleId)
     {
         if (!_guilds.TryGetValue(guildId, out DiscordGuild guild) || guild.Roles is null) return;
@@ -499,14 +517,72 @@ internal sealed class EntityCache
     public bool TryGetGuild(ulong guildId, out DiscordGuild guild) => _guilds.TryGetValue(guildId, out guild!);
     public bool TryGetUser(ulong userId, out DiscordUser user)
     {
+        if (_users.TryGetValue(userId, out user))
+            return true;
+
         foreach (ObservableConcurrentList<DiscordMember> members in _membersByGuild.Values)
         {
             DiscordMember? member = members.FirstOrDefault(m => m.User.Id == userId);
             if (member == null) continue;
             user = member.User;
+            // Store in users cache for future lookups
+            _users[userId] = user;
             return true;
         }
         user = null!;
+        return false;
+    }
+
+    public bool TryGetMember(ulong guildId, ulong userId, out DiscordMember member)
+    {
+        if (_membersByGuild.TryGetValue(guildId, out var list))
+        {
+            foreach (var m in list.ToArray())
+            {
+                if (m.User.Id == userId)
+                {
+                    member = m;
+                    return true;
+                }
+            }
+        }
+        member = null!;
+        return false;
+    }
+
+    public bool TryGetChannel(ulong channelId, out DiscordChannel channel)
+    {
+        foreach (var kvp in _channelsByGuild)
+        {
+            foreach (var ch in kvp.Value.ToArray())
+            {
+                if (ch.Id == channelId)
+                {
+                    channel = ch;
+                    return true;
+                }
+            }
+        }
+        channel = null!;
+        return false;
+    }
+
+    public bool TryGetRole(ulong roleId, out DiscordRole role)
+    {
+        foreach (var kvp in _guilds)
+        {
+            var guild = kvp.Value;
+            if (guild.Roles == null) continue;
+            foreach (var r in guild.Roles)
+            {
+                if (r.Id == roleId)
+                {
+                    role = r;
+                    return true;
+                }
+            }
+        }
+        role = null!;
         return false;
     }
 }

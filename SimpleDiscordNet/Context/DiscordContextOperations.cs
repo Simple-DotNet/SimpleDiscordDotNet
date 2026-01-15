@@ -43,29 +43,29 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
     public Task<DiscordMessage?> SendAttachmentAsync(DiscordChannel channel, string content, string fileName, ReadOnlyMemory<byte> data, EmbedBuilder? embed = null, CancellationToken ct = default)
         => _bot.SendAttachmentAsync(channel, content, fileName, data, embed, ct);
 
-    public Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default)
-        => _bot.GetGuildAsync(guildId, ct);
+    public Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default, bool useCache = true)
+        => _bot.GetGuildAsync(guildId, ct, useCache);
 
-    public Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default)
-        => _bot.GetGuildAsync(guildId, ct);
+    public Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
+        => _bot.GetGuildAsync(guildId, ct, useCache);
 
-    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default)
-        => _bot.GetGuildChannelsAsync(guildId, ct);
+    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default, bool useCache = true)
+        => _bot.GetGuildChannelsAsync(guildId, ct, useCache);
 
-    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default)
-        => _bot.GetGuildChannelsAsync(guildId, ct);
+    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
+        => _bot.GetGuildChannelsAsync(guildId, ct, useCache);
 
-    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(DiscordGuild guild, CancellationToken ct = default)
-        => _bot.GetGuildChannelsAsync(guild, ct);
+    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(DiscordGuild guild, CancellationToken ct = default, bool useCache = true)
+        => _bot.GetGuildChannelsAsync(guild, ct, useCache);
 
-    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default)
-        => _bot.GetGuildRolesAsync(guildId, ct);
+    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default, bool useCache = true)
+        => _bot.GetGuildRolesAsync(guildId, ct, useCache);
 
-    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default)
-        => _bot.GetGuildRolesAsync(guildId, ct);
+    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
+        => _bot.GetGuildRolesAsync(guildId, ct, useCache);
 
-    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(DiscordGuild guild, CancellationToken ct = default)
-        => _bot.GetGuildRolesAsync(guild, ct);
+    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(DiscordGuild guild, CancellationToken ct = default, bool useCache = true)
+        => _bot.GetGuildRolesAsync(guild, ct, useCache);
 
     public Task<IEnumerable<DiscordMember>> ListGuildMembersAsync(string guildId, int limit = 1000, string? after = null, CancellationToken ct = default)
         => _bot.ListGuildMembersAsync(guildId, limit, after, ct);
@@ -81,6 +81,26 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
 
     public Task RemoveRoleFromMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default)
         => _bot.RemoveRoleFromMemberAsync(guildId, userId, roleId, ct);
+
+    public Task TimeoutMemberAsync(string guildId, string userId, TimeSpan duration, CancellationToken ct = default)
+        => _bot.TimeoutMemberAsync(guildId, userId, duration, ct);
+    public Task TimeoutMemberAsync(ulong guildId, ulong userId, TimeSpan duration, CancellationToken ct = default)
+        => _bot.TimeoutMemberAsync(guildId, userId, duration, ct);
+
+    public Task RemoveTimeoutMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => _bot.RemoveTimeoutMemberAsync(guildId, userId, ct);
+    public Task RemoveTimeoutMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => _bot.RemoveTimeoutMemberAsync(guildId, userId, ct);
+
+    public Task MuteMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => _bot.MuteMemberAsync(guildId, userId, ct);
+    public Task MuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => _bot.MuteMemberAsync(guildId, userId, ct);
+
+    public Task UnmuteMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => _bot.UnmuteMemberAsync(guildId, userId, ct);
+    public Task UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => _bot.UnmuteMemberAsync(guildId, userId, ct);
 
     public Task<DiscordMessage?> SendDMAsync(string userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
         => _bot.SendDMAsync(userId, content, embed, ct);

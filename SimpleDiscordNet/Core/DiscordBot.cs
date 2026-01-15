@@ -29,6 +29,7 @@ public sealed class DiscordBot : IDiscordBot
     private readonly ShardManager? _shardManager; // For SingleProcess sharding
     private readonly ShardCoordinator? _coordinator; // For Distributed coordinator
     private readonly DistributedWorker? _worker; // For Distributed worker
+    private readonly CommandPermissionService _permissionService;
     private readonly SlashCommandService _slashCommands;
     private readonly ComponentService _components;
     private readonly CancellationTokenSource _cts = new();
@@ -138,7 +139,8 @@ public sealed class DiscordBot : IDiscordBot
                 break;
         }
 
-        _slashCommands = new SlashCommandService(logger);
+        _permissionService = new CommandPermissionService(logger);
+        _slashCommands = new SlashCommandService(logger, _permissionService);
         _components = new ComponentService(logger);
 
         // Configure synchronization context for observable collections
@@ -157,6 +159,13 @@ public sealed class DiscordBot : IDiscordBot
     /// Example: if (msg.Author.Id == bot.BotUser?.Id) return; // Ignore self
     /// </summary>
     public DiscordUser? BotUser => _botUser;
+
+    /// <summary>
+    /// Manage custom per-guild command permissions at runtime.
+    /// Allows registering permission checks that are evaluated before command execution.
+    /// Example: bot.Permissions.RegisterGuildRule("123456789", "ban", ctx => ctx.Member?.Roles.Any(r => r.Id == "mod_role") ?? false);
+    /// </summary>
+    public ICommandPermissions Permissions => _permissionService;
 
     // Events are surfaced via static SimpleDiscordNet.Events.DiscordEvents
 
@@ -285,6 +294,7 @@ public sealed class DiscordBot : IDiscordBot
 
     /// <summary>
     /// Stops the bot and disposes of resources.
+    /// Example: await bot.StopAsync();
     /// </summary>
     public async Task StopAsync()
     {
@@ -316,6 +326,7 @@ public sealed class DiscordBot : IDiscordBot
 
     /// <summary>
     /// Synchronizes all registered slash commands to the specified guild ids.
+    /// Example: await bot.SyncSlashCommandsAsync(new[] { "123456789012345678" });
     /// </summary>
     public async Task SyncSlashCommandsAsync(IEnumerable<string> guildIds, CancellationToken ct = default)
     {
@@ -337,6 +348,7 @@ public sealed class DiscordBot : IDiscordBot
 
     /// <summary>
     /// Sends a simple message to a channel with optional embed.
+    /// Example: await bot.SendMessageAsync(channelId, "Hello world!");
     /// </summary>
     public Task<DiscordMessage?> SendMessageAsync(string channelId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
     {
@@ -426,60 +438,110 @@ public sealed class DiscordBot : IDiscordBot
 
     /// <summary>
     /// Gets a guild by id.
+    /// Example: var guild = await bot.GetGuildAsync(guildId);
     /// </summary>
-    public Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default)
-        => _rest.GetAsync<DiscordGuild>($"/guilds/{guildId}", ct);
+    /// <param name="useCache">Whether to attempt to retrieve the guild from cache first (default: true). If false, always fetches from Discord API.</param>
+    public async Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default, bool useCache = true)
+    {
+        if (useCache && ulong.TryParse(guildId, out ulong id) && _cache.TryGetGuild(id, out DiscordGuild cachedGuild))
+            return cachedGuild;
+        var guild = await _rest.GetAsync<DiscordGuild>($"/guilds/{guildId}", ct).ConfigureAwait(false);
+        if (guild != null)
+        {
+            _cache.UpsertGuild(guild);
+        }
+        return guild;
+    }
 
     /// <summary>
     /// Gets a guild by id.
     /// </summary>
-    public Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default)
-        => GetGuildAsync(guildId.ToString(), ct);
+    /// <param name="useCache">Whether to attempt to retrieve the guild from cache first (default: true). If false, always fetches from Discord API.</param>
+    public Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
+        => GetGuildAsync(guildId.ToString(), ct, useCache);
 
     /// <summary>
     /// Gets channels of a guild.
+    /// Example: var channels = await bot.GetGuildChannelsAsync(guildId);
     /// </summary>
-    public async Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default)
+    /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
+    public async Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default, bool useCache = true)
     {
+        if (useCache && ulong.TryParse(guildId, out ulong id))
+        {
+            var cached = _cache.GetLiveChannels(id);
+            if (cached != null && cached.Count > 0)
+                return cached;
+        }
+
         var result = await _rest.GetAsync<DiscordChannel[]>($"/guilds/{guildId}/channels", ct);
+        if (result != null)
+        {
+            // Update cache with fresh data
+            if (ulong.TryParse(guildId, out ulong guildIdUlong))
+                _cache.SetChannels(guildIdUlong, result);
+        }
         return result ?? [];
     }
 
     /// <summary>
     /// Gets channels of a guild.
     /// </summary>
-    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default)
-        => GetGuildChannelsAsync(guildId.ToString(), ct);
+    /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
+    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
+        => GetGuildChannelsAsync(guildId.ToString(), ct, useCache);
 
     /// <summary>
     /// Gets channels of a guild.
     /// </summary>
-    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(DiscordGuild guild, CancellationToken ct = default)
-        => GetGuildChannelsAsync(guild.Id, ct);
+    /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
+    public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(DiscordGuild guild, CancellationToken ct = default, bool useCache = true)
+        => GetGuildChannelsAsync(guild.Id, ct, useCache);
 
     /// <summary>
     /// Gets roles of a guild.
+    /// Example: var roles = await bot.GetGuildRolesAsync(guildId);
     /// </summary>
-    public async Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default)
+    /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
+    public async Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default, bool useCache = true)
     {
+        if (useCache && ulong.TryParse(guildId, out ulong id) && _cache.TryGetGuild(id, out DiscordGuild guild) && guild.Roles != null && guild.Roles.Length > 0)
+        {
+            return guild.Roles;
+        }
+
         var result = await _rest.GetAsync<DiscordRole[]>($"/guilds/{guildId}/roles", ct);
+        if (result != null)
+        {
+            // Update cache with fresh data
+            if (ulong.TryParse(guildId, out ulong guildIdUlong))
+            {
+                foreach (var role in result)
+                {
+                    _cache.UpsertRole(guildIdUlong, role);
+                }
+            }
+        }
         return result ?? [];
     }
 
     /// <summary>
     /// Gets roles of a guild.
     /// </summary>
-    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default)
-        => GetGuildRolesAsync(guildId.ToString(), ct);
+    /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
+    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
+        => GetGuildRolesAsync(guildId.ToString(), ct, useCache);
 
     /// <summary>
     /// Gets roles of a guild.
     /// </summary>
-    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(DiscordGuild guild, CancellationToken ct = default)
-        => GetGuildRolesAsync(guild.Id, ct);
+    /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
+    public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(DiscordGuild guild, CancellationToken ct = default, bool useCache = true)
+        => GetGuildRolesAsync(guild.Id, ct, useCache);
 
     /// <summary>
     /// Lists members of a guild with pagination support.
+    /// Example: var members = await bot.ListGuildMembersAsync(guildId, limit: 100);
     /// </summary>
     public async Task<IEnumerable<DiscordMember>> ListGuildMembersAsync(string guildId, int limit = 1000, string? after = null, CancellationToken ct = default)
     {
@@ -520,6 +582,7 @@ public sealed class DiscordBot : IDiscordBot
 
     /// <summary>
     /// Sets or updates a channel permission overwrite for a role or member.
+    /// Example: await bot.SetChannelPermissionAsync(channelId, roleId, 0, allow: 1024, deny: 0);
     /// </summary>
     /// <param name="channelId">Channel ID</param>
     /// <param name="targetId">Role ID or User ID</param>
@@ -839,6 +902,62 @@ public sealed class DiscordBot : IDiscordBot
     public Task UnbanMemberAsync(string guildId, string userId, CancellationToken ct = default)
         => _rest.UnbanMemberAsync(guildId, userId, ct);
 
+    /// <summary>
+    /// Timeouts a guild member for a specified duration.
+    /// Example: await bot.TimeoutMemberAsync(guildId, userId, TimeSpan.FromHours(1));
+    /// </summary>
+    public Task<DiscordMember?> TimeoutMemberAsync(string guildId, string userId, TimeSpan duration, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, communicationDisabledUntil: DateTimeOffset.UtcNow + duration, ct: ct);
+
+    /// <summary>
+    /// Timeouts a guild member for a specified duration.
+    /// Example: await bot.TimeoutMemberAsync(guildId, userId, TimeSpan.FromHours(1));
+    /// </summary>
+    public Task<DiscordMember?> TimeoutMemberAsync(ulong guildId, ulong userId, TimeSpan duration, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, communicationDisabledUntil: DateTimeOffset.UtcNow + duration, ct: ct);
+
+    /// <summary>
+    /// Removes a timeout from a guild member.
+    /// Example: await bot.RemoveTimeoutMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> RemoveTimeoutMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, communicationDisabledUntil: null, ct: ct);
+
+    /// <summary>
+    /// Removes a timeout from a guild member.
+    /// Example: await bot.RemoveTimeoutMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> RemoveTimeoutMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, communicationDisabledUntil: null, ct: ct);
+
+    /// <summary>
+    /// Mutes a guild member in voice channels.
+    /// Example: await bot.MuteMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> MuteMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, mute: true, ct: ct);
+
+    /// <summary>
+    /// Mutes a guild member in voice channels.
+    /// Example: await bot.MuteMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> MuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, mute: true, ct: ct);
+
+    /// <summary>
+    /// Unmutes a guild member in voice channels.
+    /// Example: await bot.UnmuteMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> UnmuteMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, mute: false, ct: ct);
+
+    /// <summary>
+    /// Unmutes a guild member in voice channels.
+    /// Example: await bot.UnmuteMemberAsync(guildId, userId);
+    /// </summary>
+    public Task<DiscordMember?> UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => ModifyGuildMemberAsync(guildId, userId, mute: false, ct: ct);
+
     // ---- Role assignment ----
 
     /// <summary>
@@ -921,8 +1040,18 @@ public sealed class DiscordBot : IDiscordBot
     /// Gets a member from a guild by user ID.
     /// Example: var member = await bot.GetMemberAsync(guildId, userId);
     /// </summary>
-    public async Task<DiscordMember?> GetMemberAsync(string guildId, string userId, CancellationToken ct = default)
+    /// <param name="useCache">Whether to attempt to retrieve the member from cache first (default: true). If false, always fetches from Discord API.</param>
+    public async Task<DiscordMember?> GetMemberAsync(string guildId, string userId, CancellationToken ct = default, bool useCache = true)
     {
+        // Try cache first if enabled
+        if (useCache && ulong.TryParse(guildId, out ulong guildIdUlong) && ulong.TryParse(userId, out ulong userIdUlong))
+        {
+            if (_cache.TryGetMember(guildIdUlong, userIdUlong, out DiscordMember cachedMember))
+            {
+                return cachedMember;
+            }
+        }
+
         var member = await _rest.GetAsync<DiscordMember>($"/guilds/{guildId}/members/{userId}", ct);
 
         if (member is not null)
@@ -942,17 +1071,118 @@ public sealed class DiscordBot : IDiscordBot
             {
                 member.Guild = guild;
             }
-        }
 
+            // Update cache with fetched member
+            if (ulong.TryParse(guildId, out ulong gid) && ulong.TryParse(userId, out ulong uid))
+            {
+                _cache.UpsertMember(gid, member);
+            }
+        }
         return member;
     }
+
+/// <summary>
+/// Gets a user by ID.
+/// Example: var user = await bot.GetUserAsync(userId);
+/// </summary>
+/// <param name="useCache">Whether to attempt to retrieve the user from cache first (default: true). If false, always fetches from Discord API.</param>
+public async Task<DiscordUser?> GetUserAsync(string userId, CancellationToken ct = default, bool useCache = true)
+{
+    if (useCache && ulong.TryParse(userId, out ulong id) && _cache.TryGetUser(id, out DiscordUser cachedUser))
+    {
+        return cachedUser;
+    }
+    var user = await _rest.GetUserAsync(userId, ct).ConfigureAwait(false);
+    if (user != null)
+    {
+        _cache.UpsertUser(user);
+    }
+    return user;
+}
+
+/// <summary>
+/// Gets a user by ID.
+/// Example: var user = await bot.GetUserAsync(userId);
+/// </summary>
+/// <param name="useCache">Whether to attempt to retrieve the user from cache first (default: true). If false, always fetches from Discord API.</param>
+public Task<DiscordUser?> GetUserAsync(ulong userId, CancellationToken ct = default, bool useCache = true)
+    => GetUserAsync(userId.ToString(), ct, useCache);
+/// <summary>
+/// Gets a guild member by ID.
+/// Example: var member = await bot.GetGuildMemberAsync(guildId, userId);
+/// </summary>
+/// <param name="useCache">Whether to attempt to retrieve the member from cache first (default: true). If false, always fetches from Discord API.</param>
+public Task<DiscordMember?> GetGuildMemberAsync(string guildId, string userId, CancellationToken ct = default, bool useCache = true)
+    => GetMemberAsync(guildId, userId, ct, useCache);
+
+/// <summary>
+/// Gets a guild member by ID.
+/// Example: var member = await bot.GetGuildMemberAsync(guildId, userId);
+/// </summary>
+/// <param name="useCache">Whether to attempt to retrieve the member from cache first (default: true). If false, always fetches from Discord API.</param>
+public Task<DiscordMember?> GetGuildMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default, bool useCache = true)
+    => GetGuildMemberAsync(guildId.ToString(), userId.ToString(), ct, useCache);
+
+
+/// <summary>
+/// Modifies a guild member.
+/// Example: await bot.ModifyGuildMemberAsync(guildId, userId, new ModifyGuildMemberRequest { CommunicationDisabledUntil = DateTimeOffset.UtcNow.AddHours(1) });
+/// </summary>
+public Task ModifyGuildMemberAsync(string guildId, string userId, ModifyGuildMemberRequest request, CancellationToken ct = default)
+    => _rest.ModifyGuildMemberAsync(guildId, userId, request, ct);
+
+public Task<DiscordMember?> ModifyGuildMemberAsync(string guildId, string userId, string? nick = null, IEnumerable<string>? roles = null, bool? mute = null, bool? deaf = null, DateTimeOffset? communicationDisabledUntil = null, string? channelId = null, CancellationToken ct = default)
+{
+    var request = new ModifyGuildMemberRequest
+    {
+        nick = nick,
+        roles = roles?.Select(ulong.Parse).ToArray(),
+        mute = mute,
+        deaf = deaf,
+        communication_disabled_until = communicationDisabledUntil?.ToString("o"),
+        channel_id = channelId != null ? ulong.Parse(channelId) : (ulong?)null
+    };
+    return _rest.ModifyGuildMemberAsync(guildId, userId, request, ct);
+}
+
+public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, string? nick = null, IEnumerable<string>? roles = null, bool? mute = null, bool? deaf = null, DateTimeOffset? communicationDisabledUntil = null, ulong? channelId = null, CancellationToken ct = default)
+{
+    var request = new ModifyGuildMemberRequest
+    {
+        nick = nick,
+        roles = roles?.Select(ulong.Parse).ToArray(),
+        mute = mute,
+        deaf = deaf,
+        communication_disabled_until = communicationDisabledUntil?.ToString("o"),
+        channel_id = channelId
+    };
+    return _rest.ModifyGuildMemberAsync(guildId.ToString(), userId.ToString(), request, ct);
+}
+
 
     /// <summary>
     /// Gets a channel by ID.
     /// Example: var channel = await bot.GetChannelAsync(channelId);
     /// </summary>
-    public Task<DiscordChannel?> GetChannelAsync(string channelId, CancellationToken ct = default)
-        => _rest.GetAsync<DiscordChannel>($"/channels/{channelId}", ct);
+    /// <param name="useCache">Whether to attempt to retrieve the channel from cache first (default: true). If false, always fetches from Discord API.</param>
+    public async Task<DiscordChannel?> GetChannelAsync(string channelId, CancellationToken ct = default, bool useCache = true)
+    {
+        if (useCache && ulong.TryParse(channelId, out ulong id) && _cache.TryGetChannel(id, out DiscordChannel cachedChannel))
+            return cachedChannel;
+        var channel = await _rest.GetAsync<DiscordChannel>($"/channels/{channelId}", ct).ConfigureAwait(false);
+        if (channel != null && channel.Guild != null)
+        {
+            _cache.UpsertChannel(channel.Guild.Id, channel);
+        }
+        return channel;
+    }
+
+    /// <summary>
+    /// Gets a channel by ID.
+    /// </summary>
+    /// <param name="useCache">Whether to attempt to retrieve the channel from cache first (default: true). If false, always fetches from Discord API.</param>
+    public Task<DiscordChannel?> GetChannelAsync(ulong channelId, CancellationToken ct = default, bool useCache = true)
+        => GetChannelAsync(channelId.ToString(), ct, useCache);
 
     /// <summary>
     /// Gets information about the bot's application.
@@ -1555,6 +1785,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Sets the bot token used for authentication.
+        /// Example: builder.WithToken("your_bot_token_here");
         /// </summary>
         public Builder WithToken(string token)
         {
@@ -1564,6 +1795,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Sets the Discord gateway intents for the bot.
+        /// Example: builder.WithIntents(DiscordIntents.Guilds | DiscordIntents.GuildMessages);
         /// </summary>
         public Builder WithIntents(DiscordIntents intents)
         {
@@ -1573,6 +1805,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Sets the logger instance used by the bot.
+        /// Example: builder.WithLogger(new NativeLogger());
         /// </summary>
         public Builder WithLogger(NativeLogger logger)
         {
@@ -1582,6 +1815,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Sets JSON serialization options used for REST and gateway payloads.
+        /// Example: builder.WithJsonOptions(new JsonSerializerOptions { ... });
         /// </summary>
         public Builder WithJsonOptions(JsonSerializerOptions options)
         {
@@ -1591,6 +1825,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Sets the time provider used for timing and rate limiting operations.
+        /// Example: builder.WithTimeProvider(TimeProvider.System);
         /// </summary>
         public Builder WithTimeProvider(TimeProvider provider)
         {
@@ -1600,6 +1835,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Preload caches on Start using REST. Members require the GuildMembers intent and can be heavy.
+        /// Example: builder.WithPreloadOnStart(guilds: true, channels: true, members: false);
         /// </summary>
         public Builder WithPreloadOnStart(bool guilds = true, bool channels = true, bool members = false)
         {
@@ -1623,6 +1859,7 @@ public sealed class DiscordBot : IDiscordBot
         /// <summary>
         /// Enables or disables development mode. When enabled, all registered slash commands
         /// are synchronized immediately to the configured development guilds on Start.
+        /// Example: builder.WithDevelopmentMode(enabled: true);
         /// </summary>
         public Builder WithDevelopmentMode(bool enabled = true)
         {
@@ -1632,6 +1869,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Adds a single development guild id for immediate slash command synchronization.
+        /// Example: builder.WithDevelopmentGuild("123456789012345678");
         /// </summary>
         public Builder WithDevelopmentGuild(string guildId)
         {
@@ -1642,6 +1880,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Adds multiple development guild ids for immediate slash command synchronization.
+        /// Example: builder.WithDevelopmentGuilds(new[] { "123456789012345678", "987654321098765432" });
         /// </summary>
         public Builder WithDevelopmentGuilds(IEnumerable<string> guildIds)
         {
@@ -1656,6 +1895,7 @@ public sealed class DiscordBot : IDiscordBot
         /// <summary>
         /// Controls whether the bot automatically loads complete guild data after GUILD_CREATE.
         /// When enabled (default), fires GuildReady event when guild is fully loaded with all members, channels, roles, etc.
+        /// Example: builder.WithAutoLoadFullGuildData(enabled: true);
         /// </summary>
         public Builder WithAutoLoadFullGuildData(bool enabled = true)
         {
@@ -1711,6 +1951,7 @@ public sealed class DiscordBot : IDiscordBot
 
         /// <summary>
         /// Builds a configured <see cref="DiscordBot"/> instance.
+        /// Example: var bot = builder.Build();
         /// </summary>
         public DiscordBot Build()
         {

@@ -81,6 +81,34 @@ public sealed class DiscordMember
         => Context.DiscordContext.Operations.RemoveRoleFromMemberAsync(Guild.Id.ToString(), User.Id.ToString(), roleId.ToString(), ct);
 
     /// <summary>
+    /// Timeouts this member for a specified duration.
+    /// Example: await member.TimeoutAsync(TimeSpan.FromHours(1));
+    /// </summary>
+    public Task TimeoutAsync(TimeSpan duration, CancellationToken ct = default)
+        => Context.DiscordContext.Operations.TimeoutMemberAsync(Guild.Id, User.Id, duration, ct);
+
+    /// <summary>
+    /// Removes the timeout from this member.
+    /// Example: await member.RemoveTimeoutAsync();
+    /// </summary>
+    public Task RemoveTimeoutAsync(CancellationToken ct = default)
+        => Context.DiscordContext.Operations.RemoveTimeoutMemberAsync(Guild.Id, User.Id, ct);
+
+    /// <summary>
+    /// Mutes this member in voice channels.
+    /// Example: await member.MuteAsync();
+    /// </summary>
+    public Task MuteAsync(CancellationToken ct = default)
+        => Context.DiscordContext.Operations.MuteMemberAsync(Guild.Id, User.Id, ct);
+
+    /// <summary>
+    /// Unmutes this member in voice channels.
+    /// Example: await member.UnmuteAsync();
+    /// </summary>
+    public Task UnmuteAsync(CancellationToken ct = default)
+        => Context.DiscordContext.Operations.UnmuteMemberAsync(Guild.Id, User.Id, ct);
+
+    /// <summary>
     /// Checks if the member is currently timed out.
     /// </summary>
     public bool IsTimedOut
