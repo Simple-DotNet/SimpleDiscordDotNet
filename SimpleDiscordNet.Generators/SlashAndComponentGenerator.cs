@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -242,7 +243,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                             object? value = choiceAttr.ConstructorArguments[1].Value;
                             if (!string.IsNullOrWhiteSpace(displayName) && value != null)
                             {
-                                choiceList.Add($"{displayName}:{value}");
+                                choiceList.Add($"{displayName}:{FormatDefaultValue(value)}");
                             }
                         }
                     }
@@ -281,7 +282,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                 if (discordType == "unknown") continue; // Skip unsupported types
 
                 bool isRequired = explicitRequired ?? (!isNullable && !param.HasExplicitDefaultValue);
-                string? defaultValue = param.HasExplicitDefaultValue ? (param.ExplicitDefaultValue?.ToString() ?? "null") : null;
+                string? defaultValue = param.HasExplicitDefaultValue ? FormatDefaultValue(param.ExplicitDefaultValue) : null;
 
                 options.Add(new OptionParameter
                 {
@@ -395,7 +396,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             var groupPerms = g.Value.FirstOrDefault(c => c.RequiredPermissions.HasValue)?.RequiredPermissions;
             if (groupPerms.HasValue)
             {
-                defsBuilder.AppendLine($"        default_member_permissions = \"{groupPerms.Value}\",");
+                defsBuilder.AppendLine($"        default_member_permissions = \"{groupPerms.Value.ToString(CultureInfo.InvariantCulture)}\",");
             }
 
             defsBuilder.AppendLine("        options = new global::SimpleDiscordNet.Models.ApplicationCommandDefinition[] {");
@@ -422,7 +423,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
 
             var desc = string.IsNullOrWhiteSpace(u.SlashDescription) ? "command" : u.SlashDescription!.Replace("\"", "\\\"");
             var optsArray = BuildOptionsArray(u.Options);
-            var permsField = u.RequiredPermissions.HasValue ? $", default_member_permissions = \"{u.RequiredPermissions.Value}\"" : "";
+            var permsField = u.RequiredPermissions.HasValue ? $", default_member_permissions = \"{u.RequiredPermissions.Value.ToString(CultureInfo.InvariantCulture)}\"" : "";
             defsBuilder.AppendLine($"    new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{u.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray}{permsField} }},");
         }
         defsBuilder.AppendLine("}");
@@ -648,6 +649,14 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         }
     }
 
+    private static string FormatDefaultValue(object? value)
+    {
+        if (value is null) return "null";
+        return value is IFormattable formattable
+            ? formattable.ToString(null, CultureInfo.InvariantCulture)
+            : value.ToString() ?? "null";
+    }
+
     private static string NormalizeName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return "cmd";
@@ -705,20 +714,21 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
 
             string optName = NormalizeName(opt.OptionName);
             string desc = opt.Description.Replace("\"", "\\\"");
+            string discordTypeLiteral = discordType.ToString(CultureInfo.InvariantCulture);
 
-            sb.Append($"new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{optName}\", type = {discordType}, description = \"{desc}\", required = {opt.IsRequired.ToString().ToLowerInvariant()}");
+            sb.Append($"new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{optName}\", type = {discordTypeLiteral}, description = \"{desc}\", required = {opt.IsRequired.ToString().ToLowerInvariant()}");
 
             // Add string constraints
             if (opt.MinLength.HasValue)
-                sb.Append($", min_length = {opt.MinLength.Value}");
+                sb.Append($", min_length = {opt.MinLength.Value.ToString(CultureInfo.InvariantCulture)}");
             if (opt.MaxLength.HasValue)
-                sb.Append($", max_length = {opt.MaxLength.Value}");
+                sb.Append($", max_length = {opt.MaxLength.Value.ToString(CultureInfo.InvariantCulture)}");
 
             // Add numeric constraints
             if (opt.MinValue.HasValue)
-                sb.Append($", min_value = {opt.MinValue.Value}");
+                sb.Append($", min_value = {opt.MinValue.Value.ToString(CultureInfo.InvariantCulture)}");
             if (opt.MaxValue.HasValue)
-                sb.Append($", max_value = {opt.MaxValue.Value}");
+                sb.Append($", max_value = {opt.MaxValue.Value.ToString(CultureInfo.InvariantCulture)}");
 
             // Add channel types
             if (!string.IsNullOrWhiteSpace(opt.ChannelTypes))

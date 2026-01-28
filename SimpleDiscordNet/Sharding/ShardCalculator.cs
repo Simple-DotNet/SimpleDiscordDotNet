@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace SimpleDiscordNet.Sharding;
 
@@ -21,7 +22,7 @@ internal static class ShardCalculator
         if (totalShards <= 0)
             throw new ArgumentOutOfRangeException(nameof(totalShards), "Total shards must be greater than 0");
 
-        if (!ulong.TryParse(guildId, out ulong id))
+        if (!ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id))
             throw new ArgumentException($"Invalid guild ID: {guildId.ToString()}", nameof(guildId));
 
         return (int)((id >> 22) % (ulong)totalShards);

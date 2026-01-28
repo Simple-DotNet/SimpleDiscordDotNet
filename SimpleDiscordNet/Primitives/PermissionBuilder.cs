@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SimpleDiscordNet.Primitives;
 
 /// <summary>
@@ -21,13 +23,13 @@ public sealed class PermissionBuilder
     public static PermissionBuilder ForRole(string roleId) => new(roleId, 0);
 
     /// <summary>Creates a permission builder for a role.</summary>
-    public static PermissionBuilder ForRole(ulong roleId) => new(roleId.ToString(), 0);
+    public static PermissionBuilder ForRole(ulong roleId) => new(roleId.ToString(CultureInfo.InvariantCulture), 0);
 
     /// <summary>Creates a permission builder for a member.</summary>
     public static PermissionBuilder ForMember(string memberId) => new(memberId, 1);
 
     /// <summary>Creates a permission builder for a member.</summary>
-    public static PermissionBuilder ForMember(ulong memberId) => new(memberId.ToString(), 1);
+    public static PermissionBuilder ForMember(ulong memberId) => new(memberId.ToString(CultureInfo.InvariantCulture), 1);
 
     /// <summary>Allows specific permissions.</summary>
     public PermissionBuilder Allow(PermissionFlags permissions)
@@ -70,8 +72,8 @@ public sealed class PermissionBuilder
     {
         id = _id,
         type = _type,
-        allow = ((ulong)_allow).ToString(),
-        deny = ((ulong)_deny).ToString()
+        allow = ((ulong)_allow).ToString(CultureInfo.InvariantCulture),
+        deny = ((ulong)_deny).ToString(CultureInfo.InvariantCulture)
     };
 
     /// <summary>Quick builder for common "read-only" channel permissions.</summary>

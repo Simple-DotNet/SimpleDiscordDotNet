@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SimpleDiscordNet.Primitives;
 
 // Public DTOs for Discord message components and modals
@@ -95,11 +97,11 @@ public sealed class SelectDefaultValue
     }
 
     public static SelectDefaultValue User(string userId) => new(userId, "user");
-    public static SelectDefaultValue User(ulong userId) => new(userId.ToString(), "user");
+    public static SelectDefaultValue User(ulong userId) => new(userId.ToString(CultureInfo.InvariantCulture), "user");
     public static SelectDefaultValue Role(string roleId) => new(roleId, "role");
-    public static SelectDefaultValue Role(ulong roleId) => new(roleId.ToString(), "role");
+    public static SelectDefaultValue Role(ulong roleId) => new(roleId.ToString(CultureInfo.InvariantCulture), "role");
     public static SelectDefaultValue Channel(string channelId) => new(channelId, "channel");
-    public static SelectDefaultValue Channel(ulong channelId) => new(channelId.ToString(), "channel");
+    public static SelectDefaultValue Channel(ulong channelId) => new(channelId.ToString(CultureInfo.InvariantCulture), "channel");
 }
 
 public sealed class StringSelect : IComponent

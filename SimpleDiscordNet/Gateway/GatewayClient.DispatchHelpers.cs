@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Globalization;
 using SimpleDiscordNet.Entities;
 using SimpleDiscordNet.Events;
 
@@ -133,7 +134,7 @@ internal sealed partial class GatewayClient
             ulong? guildId = data.TryGetProperty("guild_id", out JsonElement gid) ? gid.GetDiscordIdNullable() : null;
             string? content = data.TryGetProperty("content", out JsonElement c) ? c.GetString() : null;
             DateTimeOffset? editedTimestamp = data.TryGetProperty("edited_timestamp", out JsonElement et) && et.ValueKind != JsonValueKind.Null
-                ? DateTimeOffset.Parse(et.GetString()!) : null;
+                ? DateTimeOffset.Parse(et.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) : null;
 
             MessageUpdateEvent e = new()
             {
@@ -368,9 +369,9 @@ internal sealed partial class GatewayClient
             ulong guildId = data.GetProperty("guild_id").GetDiscordId();
             ulong eventId = data.GetProperty("id").GetDiscordId();
             string name = data.GetProperty("name").GetString() ?? string.Empty;
-            DateTimeOffset startTime = DateTimeOffset.Parse(data.GetProperty("scheduled_start_time").GetString()!);
+            DateTimeOffset startTime = DateTimeOffset.Parse(data.GetProperty("scheduled_start_time").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
             DateTimeOffset? endTime = data.TryGetProperty("scheduled_end_time", out JsonElement et) && et.ValueKind != JsonValueKind.Null
-                ? DateTimeOffset.Parse(et.GetString()!) : null;
+                ? DateTimeOffset.Parse(et.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) : null;
             string? description = data.TryGetProperty("description", out JsonElement d) ? d.GetString() : null;
             ulong? channelId = data.TryGetProperty("channel_id", out JsonElement c) && c.ValueKind != JsonValueKind.Null ? c.GetDiscordIdNullable() : null;
             GuildScheduledEventCreatedEvent e = new()
@@ -395,9 +396,9 @@ internal sealed partial class GatewayClient
             ulong guildId = data.GetProperty("guild_id").GetDiscordId();
             ulong eventId = data.GetProperty("id").GetDiscordId();
             string name = data.GetProperty("name").GetString() ?? string.Empty;
-            DateTimeOffset startTime = DateTimeOffset.Parse(data.GetProperty("scheduled_start_time").GetString()!);
+            DateTimeOffset startTime = DateTimeOffset.Parse(data.GetProperty("scheduled_start_time").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
             DateTimeOffset? endTime = data.TryGetProperty("scheduled_end_time", out JsonElement et) && et.ValueKind != JsonValueKind.Null
-                ? DateTimeOffset.Parse(et.GetString()!) : null;
+                ? DateTimeOffset.Parse(et.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) : null;
             string? description = data.TryGetProperty("description", out JsonElement d) ? d.GetString() : null;
             ulong? channelId = data.TryGetProperty("channel_id", out JsonElement c) && c.ValueKind != JsonValueKind.Null ? c.GetDiscordIdNullable() : null;
             GuildScheduledEventUpdatedEvent e = new()

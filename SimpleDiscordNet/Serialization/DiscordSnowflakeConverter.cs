@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -15,7 +16,7 @@ internal sealed class DiscordSnowflakeConverter : JsonConverter<ulong>
         if (reader.TokenType == JsonTokenType.String)
         {
             string? value = reader.GetString();
-            if (value != null && ulong.TryParse(value, out ulong result))
+            if (value != null && ulong.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out ulong result))
             {
                 return result;
             }
@@ -34,7 +35,7 @@ internal sealed class DiscordSnowflakeConverter : JsonConverter<ulong>
     public override void Write(Utf8JsonWriter writer, ulong value, JsonSerializerOptions options)
     {
         // Discord expects snowflake IDs as strings
-        writer.WriteStringValue(value.ToString());
+        writer.WriteStringValue(value.ToString(CultureInfo.InvariantCulture));
     }
 }
 
@@ -53,7 +54,7 @@ internal sealed class NullableDiscordSnowflakeConverter : JsonConverter<ulong?>
         if (reader.TokenType == JsonTokenType.String)
         {
             string? value = reader.GetString();
-            if (value != null && ulong.TryParse(value, out ulong result))
+            if (value != null && ulong.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out ulong result))
             {
                 return result;
             }
@@ -72,7 +73,7 @@ internal sealed class NullableDiscordSnowflakeConverter : JsonConverter<ulong?>
     {
         if (value.HasValue)
         {
-            writer.WriteStringValue(value.Value.ToString());
+            writer.WriteStringValue(value.Value.ToString(CultureInfo.InvariantCulture));
         }
         else
         {

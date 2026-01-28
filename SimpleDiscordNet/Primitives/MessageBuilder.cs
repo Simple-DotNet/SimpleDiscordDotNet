@@ -206,10 +206,30 @@ public sealed class MessageBuilder
         object[]? components = null;
         if (_components is not null && _components.Count > 0)
         {
-            object[] componentArray = new object[_components.Count];
-            for (int i = 0; i < _components.Count; i++)
-                componentArray[i] = _components[i];
-            components = [new ActionRow(componentArray)];
+            List<object> rows = new();
+            List<object> nonActionRowComponents = new();
+            foreach (IComponent component in _components)
+            {
+                if (component is ActionRow row)
+                {
+                    // Flush any accumulated non-ActionRow components
+                    if (nonActionRowComponents.Count > 0)
+                    {
+                        rows.Add(new ActionRow(nonActionRowComponents.ToArray()));
+                        nonActionRowComponents.Clear();
+                    }
+                    rows.Add(row);
+                }
+                else
+                {
+                    nonActionRowComponents.Add(component);
+                }
+            }
+            if (nonActionRowComponents.Count > 0)
+            {
+                rows.Add(new ActionRow(nonActionRowComponents.ToArray()));
+            }
+            components = rows.ToArray();
         }
 
         object[]? attachments = null;

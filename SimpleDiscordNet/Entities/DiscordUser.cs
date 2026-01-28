@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SimpleDiscordNet.Entities;
 
 public sealed class DiscordUser
@@ -42,7 +44,7 @@ public sealed class DiscordUser
     /// <param name="format">Image format (png, jpg, webp, gif). Defaults to png, use gif for animated avatars.</param>
     public string? GetAvatarUrl(int size = 256, string format = "png")
     {
-        return string.IsNullOrEmpty(Avatar) ? null : $"https://cdn.discordapp.com/avatars/{Id}/{Avatar}.{format}?size={size}";
+        return string.IsNullOrEmpty(Avatar) ? null : $"https://cdn.discordapp.com/avatars/{Id.ToString(CultureInfo.InvariantCulture)}/{Avatar}.{format}?size={size.ToString(CultureInfo.InvariantCulture)}";
     }
 
     /// <summary>
@@ -55,7 +57,7 @@ public sealed class DiscordUser
         int index = Discriminator == 0
             ? (int)((Id >> 22) % 6)
             : Discriminator % 5;
-        return $"https://cdn.discordapp.com/embed/avatars/{index}.png";
+        return $"https://cdn.discordapp.com/embed/avatars/{index.ToString(CultureInfo.InvariantCulture)}.png";
     }
 
     /// <summary>
@@ -87,5 +89,5 @@ public sealed class DiscordUser
     /// Example: await user.SendDMAsync("Hello!");
     /// </summary>
     public Task<DiscordMessage?> SendDMAsync(string content, EmbedBuilder? embed = null, CancellationToken ct = default)
-        => Context.DiscordContext.Operations.SendDMAsync(Id.ToString(), content, embed, ct);
+        => Context.DiscordContext.Operations.SendDMAsync(Id.ToString(CultureInfo.InvariantCulture), content, embed, ct);
 }

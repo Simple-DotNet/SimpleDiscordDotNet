@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Net.WebSockets;
 using System.Text.Json;
 using SimpleDiscordNet.Entities;
@@ -579,7 +580,7 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                         {
                             Id = mu.GetProperty("id").GetDiscordId(),
                             Username = mu.TryGetProperty("username", out JsonElement uname) ? (uname.GetString() ?? string.Empty) : string.Empty,
-                            Discriminator = mu.TryGetProperty("discriminator", out JsonElement disc) && disc.ValueKind == JsonValueKind.String ? ushort.Parse(disc.GetString()!) : (ushort)0
+                            Discriminator = mu.TryGetProperty("discriminator", out JsonElement disc) && disc.ValueKind == JsonValueKind.String ? ushort.Parse(disc.GetString()!, CultureInfo.InvariantCulture) : (ushort)0
                         };
 
                         ulong[] roles = memberObj.TryGetProperty("roles", out JsonElement rolesEl) && rolesEl.ValueKind == JsonValueKind.Array
@@ -589,10 +590,10 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                         string? nick = memberObj.TryGetProperty("nick", out JsonElement nickEl) && nickEl.ValueKind != JsonValueKind.Null ? nickEl.GetString() : null;
 
                         ulong? permissions = memberObj.TryGetProperty("permissions", out JsonElement permsEl) && permsEl.ValueKind == JsonValueKind.String
-                            ? ulong.Parse(permsEl.GetString()!) : null;
+                            ? ulong.Parse(permsEl.GetString()!, CultureInfo.InvariantCulture) : null;
 
                         // Create placeholder guild (will be replaced with actual guild in cache)
-                        ulong parsedGuildId = guildId != null ? ulong.Parse(guildId) : 0;
+                        ulong parsedGuildId = guildId != null ? ulong.Parse(guildId, CultureInfo.InvariantCulture) : 0;
                         DiscordGuild guild = new() { Id = parsedGuildId, Name = string.Empty };
 
                         member = new DiscordMember

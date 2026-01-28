@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SimpleDiscordNet.Entities;
 
 public sealed class DiscordMember
@@ -52,7 +54,7 @@ public sealed class DiscordMember
     /// <param name="format">Image format (png, jpg, webp, gif)</param>
     public string? GetGuildAvatarUrl(int size = 256, string format = "png")
     {
-        return string.IsNullOrEmpty(Avatar) ? null : $"https://cdn.discordapp.com/guilds/{Guild.Id}/users/{User.Id}/avatars/{Avatar}.{format}?size={size}";
+        return string.IsNullOrEmpty(Avatar) ? null : $"https://cdn.discordapp.com/guilds/{Guild.Id.ToString(CultureInfo.InvariantCulture)}/users/{User.Id.ToString(CultureInfo.InvariantCulture)}/avatars/{Avatar}.{format}?size={size.ToString(CultureInfo.InvariantCulture)}";
     }
 
     /// <summary>
@@ -71,14 +73,14 @@ public sealed class DiscordMember
     /// Example: await member.AddRoleAsync(roleId);
     /// </summary>
     public Task AddRoleAsync(ulong roleId, CancellationToken ct = default)
-        => Context.DiscordContext.Operations.AddRoleToMemberAsync(Guild.Id.ToString(), User.Id.ToString(), roleId.ToString(), ct);
+        => Context.DiscordContext.Operations.AddRoleToMemberAsync(Guild.Id.ToString(CultureInfo.InvariantCulture), User.Id.ToString(CultureInfo.InvariantCulture), roleId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
     /// Removes a role from this member.
     /// Example: await member.RemoveRoleAsync(roleId);
     /// </summary>
     public Task RemoveRoleAsync(ulong roleId, CancellationToken ct = default)
-        => Context.DiscordContext.Operations.RemoveRoleFromMemberAsync(Guild.Id.ToString(), User.Id.ToString(), roleId.ToString(), ct);
+        => Context.DiscordContext.Operations.RemoveRoleFromMemberAsync(Guild.Id.ToString(CultureInfo.InvariantCulture), User.Id.ToString(CultureInfo.InvariantCulture), roleId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
     /// Timeouts this member for a specified duration.
@@ -116,7 +118,7 @@ public sealed class DiscordMember
         get
         {
             if (string.IsNullOrEmpty(Communication_Disabled_Until)) return false;
-            if (DateTimeOffset.TryParse(Communication_Disabled_Until, out DateTimeOffset until))
+            if (DateTimeOffset.TryParse(Communication_Disabled_Until, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset until))
                 return until > DateTimeOffset.UtcNow;
             return false;
         }

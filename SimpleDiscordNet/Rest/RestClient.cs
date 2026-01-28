@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text.Json;
 using SimpleDiscordNet.Logging;
 using SimpleDiscordNet.Models;
@@ -92,7 +93,7 @@ internal sealed class RestClient : IDisposable
                 if (res.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryValues))
                 {
                     using IEnumerator<string> enumerator = retryValues.GetEnumerator();
-                    if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), out double retrySeconds))
+                    if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double retrySeconds))
                     {
                         retryAfter = TimeSpan.FromSeconds(retrySeconds);
                     }

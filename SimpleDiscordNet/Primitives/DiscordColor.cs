@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SimpleDiscordNet;
 
 /// <summary>
@@ -49,20 +51,20 @@ public readonly struct DiscordColor(int value)
             Span<char> expanded = stackalloc char[2];
             expanded[0] = hex[0];
             expanded[1] = hex[0];
-            int r = int.Parse(expanded, System.Globalization.NumberStyles.HexNumber);
+            int r = int.Parse(expanded, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             expanded[0] = hex[1];
             expanded[1] = hex[1];
-            int g = int.Parse(expanded, System.Globalization.NumberStyles.HexNumber);
+            int g = int.Parse(expanded, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             expanded[0] = hex[2];
             expanded[1] = hex[2];
-            int b = int.Parse(expanded, System.Globalization.NumberStyles.HexNumber);
+            int b = int.Parse(expanded, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             return FromRgb((byte)r, (byte)g, (byte)b);
         }
 
         if (hex.Length != 6)
             throw new FormatException("Hex color must have 3 or 6 hex digits.");
 
-        int value = int.Parse(hex, System.Globalization.NumberStyles.HexNumber);
+        int value = int.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         return new DiscordColor(value);
     }
 

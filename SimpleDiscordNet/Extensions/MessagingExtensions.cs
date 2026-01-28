@@ -1,3 +1,4 @@
+using System.Globalization;
 using SimpleDiscordNet.Entities;
 
 namespace SimpleDiscordNet.Extensions;
@@ -14,6 +15,6 @@ public static class MessagingExtensions
     /// </summary>
     public static Task SendMessageAsync(this DiscordChannel channel, IDiscordBot bot, string content, CancellationToken ct = default)
     {
-        return bot.SendMessageAsync(channel.Id.ToString(), content, null, ct);
+        return bot.SendMessageAsync(channel.Id.ToString(CultureInfo.InvariantCulture), content, null, ct);
     }
 }

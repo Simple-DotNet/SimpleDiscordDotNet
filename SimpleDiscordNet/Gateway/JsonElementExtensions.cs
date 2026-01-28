@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace SimpleDiscordNet.Gateway;
@@ -15,7 +16,7 @@ internal static class JsonElementExtensions
         if (element.ValueKind == JsonValueKind.String)
         {
             string? value = element.GetString();
-            if (value != null && ulong.TryParse(value, out ulong result))
+            if (value != null && ulong.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out ulong result))
             {
                 return result;
             }
@@ -42,7 +43,7 @@ internal static class JsonElementExtensions
         if (element.ValueKind == JsonValueKind.String)
         {
             string? value = element.GetString();
-            if (value != null && ulong.TryParse(value, out ulong result))
+            if (value != null && ulong.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out ulong result))
             {
                 return result;
             }

@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SimpleDiscordNet.Extensions;
 
 /// <summary>
@@ -260,7 +262,7 @@ public static class DiscordFormatting
             span[0] = '<';
             span[1] = 't';
             span[2] = ':';
-            state.unixSeconds.TryFormat(span[3..], out int written);
+            state.unixSeconds.TryFormat(span[3..], out int written, provider: CultureInfo.InvariantCulture);
             int pos = 3 + written;
             span[pos++] = ':';
             span[pos++] = (char)state.style;
