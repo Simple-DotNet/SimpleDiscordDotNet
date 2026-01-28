@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using SimpleDiscordNet.Collections;
 using SimpleDiscordNet.Entities;
 using SimpleDiscordNet.Sharding;
@@ -287,7 +288,7 @@ internal sealed class EntityCache
     public IReadOnlyList<DiscordGuild> SnapshotGuildsForShard(int shardId, int totalShards)
     {
         return _guilds.Values
-            .Where(g => ShardCalculator.CalculateShardId(g.Id.ToString().AsSpan(), totalShards) == shardId)
+            .Where(g => ShardCalculator.CalculateShardId(g.Id.ToString(CultureInfo.InvariantCulture).AsSpan(), totalShards) == shardId)
             .OrderBy(g => g.Id)
             .ToArray();
     }
@@ -301,7 +302,7 @@ internal sealed class EntityCache
         List<DiscordChannel> list = new(1024);
         foreach ((ulong gid, DiscordGuild guild) in _guilds)
         {
-            if (ShardCalculator.CalculateShardId(gid.ToString().AsSpan(), totalShards) != shardId)
+            if (ShardCalculator.CalculateShardId(gid.ToString(CultureInfo.InvariantCulture).AsSpan(), totalShards) != shardId)
                 continue;
 
             if (!_channelsByGuild.TryGetValue(gid, out ObservableConcurrentList<DiscordChannel>? chs)) continue;
@@ -324,7 +325,7 @@ internal sealed class EntityCache
         List<DiscordMember> list = new(2048);
         foreach ((ulong gid, DiscordGuild guild) in _guilds)
         {
-            if (ShardCalculator.CalculateShardId(gid.ToString().AsSpan(), totalShards) != shardId)
+            if (ShardCalculator.CalculateShardId(gid.ToString(CultureInfo.InvariantCulture).AsSpan(), totalShards) != shardId)
                 continue;
 
             if (!_membersByGuild.TryGetValue(gid, out ObservableConcurrentList<DiscordMember>? members)) continue;
@@ -347,7 +348,7 @@ internal sealed class EntityCache
         List<DiscordRole> list = new(1024);
         foreach ((ulong gid, DiscordGuild guild) in _guilds)
         {
-            if (ShardCalculator.CalculateShardId(gid.ToString().AsSpan(), totalShards) != shardId)
+            if (ShardCalculator.CalculateShardId(gid.ToString(CultureInfo.InvariantCulture).AsSpan(), totalShards) != shardId)
                 continue;
 
             if (guild.Roles == null) continue;

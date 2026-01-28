@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using SimpleDiscordNet.Models;
 using SimpleDiscordNet.Models.Requests;
 using SimpleDiscordNet.Primitives;
@@ -43,7 +44,7 @@ public sealed class InteractionContext
     /// <summary>
     /// The channel entity if available in cache.
     /// </summary>
-    public Entities.DiscordChannel? Channel => ChannelId is not null ? Context.DiscordContext.GetChannel(ulong.Parse(ChannelId)) : null;
+    public Entities.DiscordChannel? Channel => ChannelId is not null ? Context.DiscordContext.GetChannel(ulong.Parse(ChannelId, CultureInfo.InvariantCulture)) : null;
 
     /// <summary>
     /// The shard ID that received this interaction (0-based).

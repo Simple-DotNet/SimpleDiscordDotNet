@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.8.0</Version>
+        <Version>1.8.2</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.8.0: Advanced moderation and audit log features - Added member deafen/undeafen operations, voice channel move/disconnect, guild bans list retrieval, and full audit log access with filtering. All methods support both string and ulong overloads for maximum flexibility.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.8.2: Culture-invariant parsing and formatting for API headers, snowflake IDs, timestamps, and generated command definitions to prevent locale-related errors.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>

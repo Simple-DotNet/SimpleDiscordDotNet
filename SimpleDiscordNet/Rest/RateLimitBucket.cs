@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SimpleDiscordNet.Rest;
 
 /// <summary>
@@ -93,7 +95,7 @@ internal sealed class RateLimitBucket
             if (response.Headers.TryGetValues("X-RateLimit-Limit", out var limitValues))
             {
                 using var enumerator = limitValues.GetEnumerator();
-                if (enumerator.MoveNext() && int.TryParse(enumerator.Current.AsSpan(), out int limit))
+                if (enumerator.MoveNext() && int.TryParse(enumerator.Current.AsSpan(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int limit))
                 {
                     _limit = limit;
                     wasUpdated = true;
@@ -103,7 +105,7 @@ internal sealed class RateLimitBucket
             if (response.Headers.TryGetValues("X-RateLimit-Remaining", out var remainingValues))
             {
                 using var enumerator = remainingValues.GetEnumerator();
-                if (enumerator.MoveNext() && int.TryParse(enumerator.Current.AsSpan(), out int remaining))
+                if (enumerator.MoveNext() && int.TryParse(enumerator.Current.AsSpan(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int remaining))
                 {
                     _remaining = remaining;
                     wasUpdated = true;
@@ -113,7 +115,7 @@ internal sealed class RateLimitBucket
             if (response.Headers.TryGetValues("X-RateLimit-Reset", out var resetValues))
             {
                 using var enumerator = resetValues.GetEnumerator();
-                if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), out double resetTimestamp))
+                if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double resetTimestamp))
                 {
                     _resetAt = DateTimeOffset.FromUnixTimeSeconds((long)resetTimestamp);
                     wasUpdated = true;
@@ -164,7 +166,7 @@ internal sealed class RateLimitBucket
             if (response.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryValues))
             {
                 using var enumerator = retryValues.GetEnumerator();
-                if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), out double retrySeconds))
+                if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double retrySeconds))
                 {
                     retryAfter = TimeSpan.FromSeconds(retrySeconds);
                 }

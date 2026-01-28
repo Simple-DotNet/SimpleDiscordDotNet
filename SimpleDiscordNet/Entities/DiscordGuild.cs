@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SimpleDiscordNet.Entities;
 
 public sealed class DiscordGuild
@@ -96,7 +98,7 @@ public sealed class DiscordGuild
     /// <param name="format">Image format (png, jpg, webp, gif)</param>
     public string? GetIconUrl(int size = 256, string format = "png")
     {
-        return string.IsNullOrEmpty(Icon) ? null : $"https://cdn.discordapp.com/icons/{Id}/{Icon}.{format}?size={size}";
+        return string.IsNullOrEmpty(Icon) ? null : $"https://cdn.discordapp.com/icons/{Id.ToString(CultureInfo.InvariantCulture)}/{Icon}.{format}?size={size.ToString(CultureInfo.InvariantCulture)}";
     }
 
     /// <summary>
@@ -104,7 +106,7 @@ public sealed class DiscordGuild
     /// </summary>
     public string? GetBannerUrl(int size = 1024, string format = "png")
     {
-        return string.IsNullOrEmpty(Banner) ? null : $"https://cdn.discordapp.com/banners/{Id}/{Banner}.{format}?size={size}";
+        return string.IsNullOrEmpty(Banner) ? null : $"https://cdn.discordapp.com/banners/{Id.ToString(CultureInfo.InvariantCulture)}/{Banner}.{format}?size={size.ToString(CultureInfo.InvariantCulture)}";
     }
 
     /// <summary>
@@ -112,7 +114,7 @@ public sealed class DiscordGuild
     /// </summary>
     public string? GetSplashUrl(int size = 1024, string format = "png")
     {
-        return string.IsNullOrEmpty(Splash) ? null : $"https://cdn.discordapp.com/splashes/{Id}/{Splash}.{format}?size={size}";
+        return string.IsNullOrEmpty(Splash) ? null : $"https://cdn.discordapp.com/splashes/{Id.ToString(CultureInfo.InvariantCulture)}/{Splash}.{format}?size={size.ToString(CultureInfo.InvariantCulture)}";
     }
 
     /// <summary>
@@ -154,7 +156,7 @@ public sealed class DiscordGuild
     /// Example: await guild.CreateChannelAsync("general", ChannelType.GuildText, category);
     /// </summary>
     public Task<DiscordChannel?> CreateChannelAsync(string name, ChannelType type, DiscordChannel? parent = null, object[]? permissionOverwrites = null, CancellationToken ct = default)
-        => Context.DiscordContext.Operations.CreateChannelAsync(Id, name, type, parent?.Id.ToString(), permissionOverwrites, ct);
+        => Context.DiscordContext.Operations.CreateChannelAsync(Id, name, type, parent?.Id.ToString(CultureInfo.InvariantCulture), permissionOverwrites, ct);
 
     /// <summary>
     /// Creates a new category in this guild.

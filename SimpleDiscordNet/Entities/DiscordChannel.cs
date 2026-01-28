@@ -1,3 +1,4 @@
+using System.Globalization;
 using SimpleDiscordNet.Primitives;
 
 namespace SimpleDiscordNet.Entities;
@@ -68,14 +69,14 @@ public sealed class DiscordChannel
     /// Example: await channel.SendMessageAsync("Hello!");
     /// </summary>
     public Task<DiscordMessage?> SendMessageAsync(string content, EmbedBuilder? embed = null, CancellationToken ct = default)
-        => Context.DiscordContext.Operations.SendMessageAsync(Id.ToString(), content, embed, ct);
+        => Context.DiscordContext.Operations.SendMessageAsync(Id.ToString(CultureInfo.InvariantCulture), content, embed, ct);
 
     /// <summary>
     /// Sends a message to this channel using a MessageBuilder.
     /// Example: await channel.SendMessageAsync(new MessageBuilder().WithContent("Hello").WithEmbed(embed));
     /// </summary>
     public Task<DiscordMessage?> SendMessageAsync(MessageBuilder builder, CancellationToken ct = default)
-        => Context.DiscordContext.Operations.SendMessageAsync(Id.ToString(), builder, ct);
+        => Context.DiscordContext.Operations.SendMessageAsync(Id.ToString(CultureInfo.InvariantCulture), builder, ct);
 
     /// <summary>
     /// Deletes this channel.
@@ -151,8 +152,8 @@ public sealed class DiscordChannel
         ulong denyBits = deny.HasValue ? (ulong)deny.Value : (current?.Deny ?? 0);
 
         await Context.DiscordContext.Operations.SetChannelPermissionAsync(
-            Id.ToString(),
-            targetId.ToString(),
+            Id.ToString(CultureInfo.InvariantCulture),
+            targetId.ToString(CultureInfo.InvariantCulture),
             isRole ? 0 : 1,
             allowBits,
             denyBits,
@@ -174,8 +175,8 @@ public sealed class DiscordChannel
         ulong denyBits = (current?.Deny ?? 0) & ~(ulong)permission; // Remove from deny if present
 
         await Context.DiscordContext.Operations.SetChannelPermissionAsync(
-            Id.ToString(),
-            targetId.ToString(),
+            Id.ToString(CultureInfo.InvariantCulture),
+            targetId.ToString(CultureInfo.InvariantCulture),
             isRole ? 0 : 1,
             allowBits,
             denyBits,
@@ -199,8 +200,8 @@ public sealed class DiscordChannel
         ulong denyBits = current.Deny & ~(ulong)permission;
 
         await Context.DiscordContext.Operations.SetChannelPermissionAsync(
-            Id.ToString(),
-            targetId.ToString(),
+            Id.ToString(CultureInfo.InvariantCulture),
+            targetId.ToString(CultureInfo.InvariantCulture),
             isRole ? 0 : 1,
             allowBits,
             denyBits,
@@ -222,8 +223,8 @@ public sealed class DiscordChannel
         ulong denyBits = (current?.Deny ?? 0) | (ulong)permission;
 
         await Context.DiscordContext.Operations.SetChannelPermissionAsync(
-            Id.ToString(),
-            targetId.ToString(),
+            Id.ToString(CultureInfo.InvariantCulture),
+            targetId.ToString(CultureInfo.InvariantCulture),
             isRole ? 0 : 1,
             allowBits,
             denyBits,
@@ -237,7 +238,7 @@ public sealed class DiscordChannel
     /// </summary>
     /// <param name="targetId">Role ID or User ID</param>
     public Task DeletePermissionOverwriteAsync(ulong targetId, CancellationToken ct = default)
-        => Context.DiscordContext.Operations.DeleteChannelPermissionAsync(Id.ToString(), targetId.ToString(), ct);
+        => Context.DiscordContext.Operations.DeleteChannelPermissionAsync(Id.ToString(CultureInfo.InvariantCulture), targetId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
     /// Gets recent messages from this channel (up to 100).
@@ -247,7 +248,7 @@ public sealed class DiscordChannel
     /// <param name="before">Get messages before this message ID (optional)</param>
     /// <param name="after">Get messages after this message ID (optional)</param>
     public Task<IEnumerable<DiscordMessage>> GetMessagesAsync(int limit, string? before = null, string? after = null, CancellationToken ct = default)
-        => Context.DiscordContext.Operations.GetMessagesAsync(Id.ToString(), limit, before, after, ct);
+        => Context.DiscordContext.Operations.GetMessagesAsync(Id.ToString(CultureInfo.InvariantCulture), limit, before, after, ct);
 
     /// <summary>
     /// Bulk deletes the most recent messages in this channel (2-100 messages, must be less than 14 days old).
@@ -260,12 +261,12 @@ public sealed class DiscordChannel
             throw new ArgumentOutOfRangeException(nameof(count), "Count must be between 2 and 100");
 
         var messages = await GetMessagesAsync(count, ct: ct);
-        var messageIds = messages.Select(m => m.Id.ToString()).ToArray();
+        var messageIds = messages.Select(static m => m.Id.ToString(CultureInfo.InvariantCulture)).ToArray();
 
         if (messageIds.Length == 0)
             return;
 
-        await Context.DiscordContext.Operations.BulkDeleteMessagesAsync(Id.ToString(), messageIds, ct);
+        await Context.DiscordContext.Operations.BulkDeleteMessagesAsync(Id.ToString(CultureInfo.InvariantCulture), messageIds, ct);
     }
 }
 

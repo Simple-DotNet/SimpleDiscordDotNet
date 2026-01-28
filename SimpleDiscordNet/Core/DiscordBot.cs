@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using SimpleDiscordNet.Context;
 using SimpleDiscordNet.Core;
@@ -364,7 +365,7 @@ public sealed class DiscordBot : IDiscordBot
     /// Sends a simple message to a channel with optional embed.
     /// </summary>
     public Task<DiscordMessage?> SendMessageAsync(ulong channelId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
-        => SendMessageAsync(channelId.ToString(), content, embed, ct);
+        => SendMessageAsync(channelId.ToString(CultureInfo.InvariantCulture), content, embed, ct);
 
     /// <summary>
     /// Sends a simple message to a channel with optional embed.
@@ -402,7 +403,7 @@ public sealed class DiscordBot : IDiscordBot
     /// Sends a message using a MessageBuilder.
     /// </summary>
     public Task<DiscordMessage?> SendMessageAsync(ulong channelId, MessageBuilder builder, CancellationToken ct = default)
-        => SendMessageAsync(channelId.ToString(), builder, ct);
+        => SendMessageAsync(channelId.ToString(CultureInfo.InvariantCulture), builder, ct);
 
     /// <summary>
     /// Sends a message using a MessageBuilder.
@@ -428,7 +429,7 @@ public sealed class DiscordBot : IDiscordBot
     /// Sends a message with a single attachment.
     /// </summary>
     public Task<DiscordMessage?> SendAttachmentAsync(ulong channelId, string content, string fileName, ReadOnlyMemory<byte> data, EmbedBuilder? embed = null, CancellationToken ct = default)
-        => SendAttachmentAsync(channelId.ToString(), content, fileName, data, embed, ct);
+        => SendAttachmentAsync(channelId.ToString(CultureInfo.InvariantCulture), content, fileName, data, embed, ct);
 
     /// <summary>
     /// Sends a message with a single attachment.
@@ -443,7 +444,7 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="useCache">Whether to attempt to retrieve the guild from cache first (default: true). If false, always fetches from Discord API.</param>
     public async Task<DiscordGuild?> GetGuildAsync(string guildId, CancellationToken ct = default, bool useCache = true)
     {
-        if (useCache && ulong.TryParse(guildId, out ulong id) && _cache.TryGetGuild(id, out DiscordGuild cachedGuild))
+        if (useCache && ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) && _cache.TryGetGuild(id, out DiscordGuild cachedGuild))
             return cachedGuild;
         var guild = await _rest.GetAsync<DiscordGuild>($"/guilds/{guildId}", ct).ConfigureAwait(false);
         if (guild != null)
@@ -458,7 +459,7 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     /// <param name="useCache">Whether to attempt to retrieve the guild from cache first (default: true). If false, always fetches from Discord API.</param>
     public Task<DiscordGuild?> GetGuildAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
-        => GetGuildAsync(guildId.ToString(), ct, useCache);
+        => GetGuildAsync(guildId.ToString(CultureInfo.InvariantCulture), ct, useCache);
 
     /// <summary>
     /// Gets channels of a guild.
@@ -467,7 +468,7 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
     public async Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default, bool useCache = true)
     {
-        if (useCache && ulong.TryParse(guildId, out ulong id))
+        if (useCache && ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id))
         {
             var cached = _cache.GetLiveChannels(id);
             if (cached != null && cached.Count > 0)
@@ -478,7 +479,7 @@ public sealed class DiscordBot : IDiscordBot
         if (result != null)
         {
             // Update cache with fresh data
-            if (ulong.TryParse(guildId, out ulong guildIdUlong))
+            if (ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong guildIdUlong))
                 _cache.SetChannels(guildIdUlong, result);
         }
         return result ?? [];
@@ -489,7 +490,7 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     /// <param name="useCache">Whether to attempt to retrieve channels from cache first (default: true). If false, always fetches from Discord API.</param>
     public Task<IEnumerable<DiscordChannel>> GetGuildChannelsAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
-        => GetGuildChannelsAsync(guildId.ToString(), ct, useCache);
+        => GetGuildChannelsAsync(guildId.ToString(CultureInfo.InvariantCulture), ct, useCache);
 
     /// <summary>
     /// Gets channels of a guild.
@@ -505,7 +506,7 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
     public async Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(string guildId, CancellationToken ct = default, bool useCache = true)
     {
-        if (useCache && ulong.TryParse(guildId, out ulong id) && _cache.TryGetGuild(id, out DiscordGuild guild) && guild.Roles != null && guild.Roles.Length > 0)
+        if (useCache && ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) && _cache.TryGetGuild(id, out DiscordGuild guild) && guild.Roles != null && guild.Roles.Length > 0)
         {
             return guild.Roles;
         }
@@ -514,7 +515,7 @@ public sealed class DiscordBot : IDiscordBot
         if (result != null)
         {
             // Update cache with fresh data
-            if (ulong.TryParse(guildId, out ulong guildIdUlong))
+            if (ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong guildIdUlong))
             {
                 foreach (var role in result)
                 {
@@ -530,7 +531,7 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     /// <param name="useCache">Whether to attempt to retrieve roles from cache first (default: true). If false, always fetches from Discord API.</param>
     public Task<IEnumerable<DiscordRole>> GetGuildRolesAsync(ulong guildId, CancellationToken ct = default, bool useCache = true)
-        => GetGuildRolesAsync(guildId.ToString(), ct, useCache);
+        => GetGuildRolesAsync(guildId.ToString(CultureInfo.InvariantCulture), ct, useCache);
 
     /// <summary>
     /// Gets roles of a guild.
@@ -553,7 +554,7 @@ public sealed class DiscordBot : IDiscordBot
 
         // Get guild from cache or API to populate Guild property on members
         DiscordGuild? guild = null;
-        if (_cache is not null && _cache.TryGetGuild(ulong.Parse(guildId), out var cachedGuild))
+        if (_cache is not null && _cache.TryGetGuild(ulong.Parse(guildId, CultureInfo.InvariantCulture), out var cachedGuild))
         {
             guild = cachedGuild;
         }
@@ -575,7 +576,7 @@ public sealed class DiscordBot : IDiscordBot
     }
 
     public Task<IEnumerable<DiscordMember>> ListGuildMembersAsync(ulong guildId, int limit = 1000, string? after = null, CancellationToken ct = default)
-        => ListGuildMembersAsync(guildId.ToString(), limit, after, ct);
+        => ListGuildMembersAsync(guildId.ToString(CultureInfo.InvariantCulture), limit, after, ct);
 
     public Task<IEnumerable<DiscordMember>> ListGuildMembersAsync(DiscordGuild guild, int limit = 1000, string? after = null, CancellationToken ct = default)
         => ListGuildMembersAsync(guild.Id, limit, after, ct);
@@ -592,7 +593,7 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="ct">Cancellation token</param>
     public Task SetChannelPermissionAsync(string channelId, string targetId, int type, ulong allow, ulong deny, CancellationToken ct = default)
     {
-        var payload = new { type, allow = allow.ToString(), deny = deny.ToString() };
+        var payload = new { type, allow = allow.ToString(CultureInfo.InvariantCulture), deny = deny.ToString(CultureInfo.InvariantCulture) };
         return _rest.PutChannelPermissionAsync(channelId, targetId, payload, ct);
     }
 
@@ -617,7 +618,7 @@ public sealed class DiscordBot : IDiscordBot
         var payload = new
         {
             name,
-            permissions = permissions?.ToString(),
+            permissions = permissions?.ToString(CultureInfo.InvariantCulture),
             color,
             hoist,
             mentionable
@@ -633,7 +634,7 @@ public sealed class DiscordBot : IDiscordBot
         var payload = new
         {
             name,
-            permissions = permissions?.ToString(),
+            permissions = permissions?.ToString(CultureInfo.InvariantCulture),
             color,
             hoist,
             mentionable
@@ -914,7 +915,7 @@ public sealed class DiscordBot : IDiscordBot
     /// Example: var bans = await bot.GetGuildBansAsync(guildId);
     /// </summary>
     public Task<IEnumerable<DiscordBan>> GetGuildBansAsync(ulong guildId, CancellationToken ct = default)
-        => _rest.GetGuildBansAsync(guildId.ToString(), ct);
+        => _rest.GetGuildBansAsync(guildId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
     /// Gets a specific ban by user ID. Requires BAN_MEMBERS permission.
@@ -928,7 +929,7 @@ public sealed class DiscordBot : IDiscordBot
     /// Example: var ban = await bot.GetGuildBanAsync(guildId, userId);
     /// </summary>
     public Task<DiscordBan?> GetGuildBanAsync(ulong guildId, ulong userId, CancellationToken ct = default)
-        => _rest.GetGuildBanAsync(guildId.ToString(), userId.ToString(), ct);
+        => _rest.GetGuildBanAsync(guildId.ToString(CultureInfo.InvariantCulture), userId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
     /// Timeouts a guild member for a specified duration.
@@ -1082,7 +1083,7 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="after">Filter entries after this entry ID</param>
     /// <param name="limit">Maximum number of entries to return (1-100, default 50)</param>
     public Task<DiscordAuditLog?> GetAuditLogAsync(ulong guildId, ulong? userId = null, int? actionType = null, ulong? before = null, ulong? after = null, int limit = 50, CancellationToken ct = default)
-        => _rest.GetAuditLogAsync(guildId.ToString(), userId, actionType, before, after, limit, ct);
+        => _rest.GetAuditLogAsync(guildId.ToString(CultureInfo.InvariantCulture), userId, actionType, before, after, limit, ct);
 
     // ---- Typing indicator ----
 
@@ -1154,7 +1155,7 @@ public sealed class DiscordBot : IDiscordBot
     public async Task<DiscordMember?> GetMemberAsync(string guildId, string userId, CancellationToken ct = default, bool useCache = true)
     {
         // Try cache first if enabled
-        if (useCache && ulong.TryParse(guildId, out ulong guildIdUlong) && ulong.TryParse(userId, out ulong userIdUlong))
+        if (useCache && ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong guildIdUlong) && ulong.TryParse(userId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong userIdUlong))
         {
             if (_cache.TryGetMember(guildIdUlong, userIdUlong, out DiscordMember cachedMember))
             {
@@ -1168,7 +1169,7 @@ public sealed class DiscordBot : IDiscordBot
         {
             // Get guild from cache or API to populate Guild property
             DiscordGuild? guild = null;
-            if (_cache is not null && _cache.TryGetGuild(ulong.Parse(guildId), out var cachedGuild))
+            if (_cache is not null && _cache.TryGetGuild(ulong.Parse(guildId, CultureInfo.InvariantCulture), out var cachedGuild))
             {
                 guild = cachedGuild;
             }
@@ -1183,7 +1184,7 @@ public sealed class DiscordBot : IDiscordBot
             }
 
             // Update cache with fetched member
-            if (_cache is not null && ulong.TryParse(guildId, out ulong gid) && ulong.TryParse(userId, out ulong uid))
+            if (_cache is not null && ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong gid) && ulong.TryParse(userId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong uid))
             {
                 _cache.UpsertMember(gid, member);
             }
@@ -1198,7 +1199,7 @@ public sealed class DiscordBot : IDiscordBot
 /// <param name="useCache">Whether to attempt to retrieve the user from cache first (default: true). If false, always fetches from Discord API.</param>
 public async Task<DiscordUser?> GetUserAsync(string userId, CancellationToken ct = default, bool useCache = true)
 {
-    if (useCache && ulong.TryParse(userId, out ulong id) && _cache.TryGetUser(id, out DiscordUser cachedUser))
+    if (useCache && ulong.TryParse(userId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) && _cache.TryGetUser(id, out DiscordUser cachedUser))
     {
         return cachedUser;
     }
@@ -1216,7 +1217,7 @@ public async Task<DiscordUser?> GetUserAsync(string userId, CancellationToken ct
 /// </summary>
 /// <param name="useCache">Whether to attempt to retrieve the user from cache first (default: true). If false, always fetches from Discord API.</param>
 public Task<DiscordUser?> GetUserAsync(ulong userId, CancellationToken ct = default, bool useCache = true)
-    => GetUserAsync(userId.ToString(), ct, useCache);
+    => GetUserAsync(userId.ToString(CultureInfo.InvariantCulture), ct, useCache);
 /// <summary>
 /// Gets a guild member by ID.
 /// Example: var member = await bot.GetGuildMemberAsync(guildId, userId);
@@ -1231,7 +1232,7 @@ public Task<DiscordMember?> GetGuildMemberAsync(string guildId, string userId, C
 /// </summary>
 /// <param name="useCache">Whether to attempt to retrieve the member from cache first (default: true). If false, always fetches from Discord API.</param>
 public Task<DiscordMember?> GetGuildMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default, bool useCache = true)
-    => GetGuildMemberAsync(guildId.ToString(), userId.ToString(), ct, useCache);
+    => GetGuildMemberAsync(guildId.ToString(CultureInfo.InvariantCulture), userId.ToString(CultureInfo.InvariantCulture), ct, useCache);
 
 
 /// <summary>
@@ -1246,11 +1247,11 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(string guildId, string userId
     var request = new ModifyGuildMemberRequest
     {
         nick = nick,
-        roles = roles?.Select(ulong.Parse).ToArray(),
+        roles = roles?.Select(static id => ulong.Parse(id, CultureInfo.InvariantCulture)).ToArray(),
         mute = mute,
         deaf = deaf,
         communication_disabled_until = communicationDisabledUntil?.ToString("o"),
-        channel_id = channelId != null ? ulong.Parse(channelId) : (ulong?)null
+        channel_id = channelId != null ? ulong.Parse(channelId, CultureInfo.InvariantCulture) : (ulong?)null
     };
     return _rest.ModifyGuildMemberAsync(guildId, userId, request, ct);
 }
@@ -1260,13 +1261,13 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     var request = new ModifyGuildMemberRequest
     {
         nick = nick,
-        roles = roles?.Select(ulong.Parse).ToArray(),
+        roles = roles?.Select(static id => ulong.Parse(id, CultureInfo.InvariantCulture)).ToArray(),
         mute = mute,
         deaf = deaf,
         communication_disabled_until = communicationDisabledUntil?.ToString("o"),
         channel_id = channelId
     };
-    return _rest.ModifyGuildMemberAsync(guildId.ToString(), userId.ToString(), request, ct);
+    return _rest.ModifyGuildMemberAsync(guildId.ToString(CultureInfo.InvariantCulture), userId.ToString(CultureInfo.InvariantCulture), request, ct);
 }
 
 
@@ -1277,7 +1278,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// <param name="useCache">Whether to attempt to retrieve the channel from cache first (default: true). If false, always fetches from Discord API.</param>
     public async Task<DiscordChannel?> GetChannelAsync(string channelId, CancellationToken ct = default, bool useCache = true)
     {
-        if (useCache && ulong.TryParse(channelId, out ulong id) && _cache.TryGetChannel(id, out DiscordChannel cachedChannel))
+        if (useCache && ulong.TryParse(channelId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) && _cache.TryGetChannel(id, out DiscordChannel cachedChannel))
             return cachedChannel;
         var channel = await _rest.GetAsync<DiscordChannel>($"/channels/{channelId}", ct).ConfigureAwait(false);
         if (channel != null && channel.Guild != null)
@@ -1292,7 +1293,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     /// <param name="useCache">Whether to attempt to retrieve the channel from cache first (default: true). If false, always fetches from Discord API.</param>
     public Task<DiscordChannel?> GetChannelAsync(ulong channelId, CancellationToken ct = default, bool useCache = true)
-        => GetChannelAsync(channelId.ToString(), ct, useCache);
+        => GetChannelAsync(channelId.ToString(CultureInfo.InvariantCulture), ct, useCache);
 
     /// <summary>
     /// Gets information about the bot's application.
@@ -1318,7 +1319,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     public async Task<bool> MemberHasRoleAsync(string guildId, string userId, string roleId, CancellationToken ct = default)
     {
         DiscordMember? member = await GetMemberAsync(guildId, userId, ct).ConfigureAwait(false);
-        return member?.HasRole(ulong.Parse(roleId)) ?? false;
+        return member?.HasRole(ulong.Parse(roleId, CultureInfo.InvariantCulture)) ?? false;
     }
 
     /// <summary>
@@ -1328,7 +1329,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     public async Task<DiscordRole?> GetEveryoneRoleAsync(string guildId, CancellationToken ct = default)
     {
         var roles = await GetGuildRolesAsync(guildId, ct).ConfigureAwait(false);
-        return roles.FirstOrDefault(r => r.Id == ulong.Parse(guildId));
+        return roles.FirstOrDefault(r => r.Id == ulong.Parse(guildId, CultureInfo.InvariantCulture));
     }
 
     /// <summary>
@@ -1349,7 +1350,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
             // DM channels don't have a guild, so we use guildId of 0
             _cache.UpsertChannel(0, dmChannel);
 
-            return await SendMessageAsync(dmChannel.Id.ToString(), content, embed, ct).ConfigureAwait(false);
+            return await SendMessageAsync(dmChannel.Id.ToString(CultureInfo.InvariantCulture), content, embed, ct).ConfigureAwait(false);
         }
 
         return null;
@@ -1367,7 +1368,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// Example: await bot.DeleteMessageAsync(channelId, messageId);
     /// </summary>
     public Task DeleteMessageAsync(ulong channelId, ulong messageId, CancellationToken ct = default)
-        => _rest.DeleteMessageAsync(channelId.ToString(), messageId.ToString(), ct);
+        => _rest.DeleteMessageAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), ct);
 
     // Event handler methods for gateway events
     private void OnConnected(object? sender, EventArgs e) => DiscordEvents.RaiseConnected(this);
@@ -1378,7 +1379,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     {
         // Populate Guild from cache if this is a guild interaction
         InteractionCreateEvent enriched = e;
-        if (e.GuildId is not null && ulong.TryParse(e.GuildId, out ulong guildId))
+        if (e.GuildId is not null && ulong.TryParse(e.GuildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong guildId))
         {
             if (_cache.TryGetGuild(guildId, out DiscordGuild? guild))
             {
@@ -1452,7 +1453,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     private void OnGuildDelete(object? sender, ulong gid)
     {
         _cache.RemoveGuild(gid);
-        DiscordEvents.RaiseGuildRemoved(this, gid.ToString());
+        DiscordEvents.RaiseGuildRemoved(this, gid.ToString(CultureInfo.InvariantCulture));
     }
 
     private void OnGuildEmojisUpdate(object? sender, GuildEmojisUpdateEvent e)
@@ -1645,10 +1646,10 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     {
         DiscordGuild guild = _cache.TryGetGuild(e.GuildId, out DiscordGuild g) ? g : new DiscordGuild { Id = e.GuildId, Name = string.Empty };
         DiscordUser? user = null;
-        if (e.Entry.user_id != null && ulong.TryParse(e.Entry.user_id, out ulong uid) && _cache.TryGetUser(uid, out DiscordUser u))
+        if (e.Entry.user_id != null && ulong.TryParse(e.Entry.user_id, NumberStyles.None, CultureInfo.InvariantCulture, out ulong uid) && _cache.TryGetUser(uid, out DiscordUser u))
             user = u;
         DiscordUser? targetUser = null;
-        if (e.Entry.target_id != null && ulong.TryParse(e.Entry.target_id, out ulong tid) && _cache.TryGetUser(tid, out DiscordUser tu))
+        if (e.Entry.target_id != null && ulong.TryParse(e.Entry.target_id, NumberStyles.None, CultureInfo.InvariantCulture, out ulong tid) && _cache.TryGetUser(tid, out DiscordUser tu))
             targetUser = tu;
 
         AuditLogEvent evt = new()
@@ -1688,13 +1689,13 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
             try
             {
                 // Parse IDs
-                if (!ulong.TryParse(rawMsg.Id, out ulong messageId)) return;
-                if (!ulong.TryParse(rawMsg.ChannelId, out ulong channelId)) return;
+                if (!ulong.TryParse(rawMsg.Id, NumberStyles.None, CultureInfo.InvariantCulture, out ulong messageId)) return;
+                if (!ulong.TryParse(rawMsg.ChannelId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong channelId)) return;
                 ulong authorId = rawMsg.Author.Id;
 
                 // Resolve entities from cache using DiscordContext
                 DiscordChannel? channel = Context.DiscordContext.GetChannel(channelId);
-                DiscordGuild? guild = rawMsg.GuildId != null && ulong.TryParse(rawMsg.GuildId, out ulong guildId)
+                DiscordGuild? guild = rawMsg.GuildId != null && ulong.TryParse(rawMsg.GuildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong guildId)
                     ? Context.DiscordContext.GetGuild(guildId)
                     : null;
 
@@ -2118,7 +2119,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
                 {
                     foreach (DiscordGuild g in guilds)
                     {
-                        var ch = await GetGuildChannelsAsync(g.Id.ToString(), ct).ConfigureAwait(false);
+                        var ch = await GetGuildChannelsAsync(g.Id.ToString(CultureInfo.InvariantCulture), ct).ConfigureAwait(false);
                         _cache.SetChannels(g.Id, ch);
                     }
                 }
@@ -2131,10 +2132,10 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
                         string? after = null;
                         while (true)
                         {
-                            var page = (await ListGuildMembersAsync(g.Id.ToString(), 1000, after, ct).ConfigureAwait(false)).ToArray();
+                            var page = (await ListGuildMembersAsync(g.Id.ToString(CultureInfo.InvariantCulture), 1000, after, ct).ConfigureAwait(false)).ToArray();
                             if (page.Length == 0) break;
                             all.AddRange(page);
-                            after = page[^1].User.Id.ToString();
+                            after = page[^1].User.Id.ToString(CultureInfo.InvariantCulture);
                             if (page.Length < 1000) break;
                         }
                         _cache.SetMembers(g.Id, all);
@@ -2165,7 +2166,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
             _logger.Log(LogLevel.Debug, $"Loading channels for guild {guildId} via REST");
             try
             {
-                var channels = await GetGuildChannelsAsync(guildId.ToString(), _cts.Token).ConfigureAwait(false);
+                var channels = await GetGuildChannelsAsync(guildId.ToString(CultureInfo.InvariantCulture), _cts.Token).ConfigureAwait(false);
                 _cache.SetChannels(guildId, channels);
                 needsChannels = true;
             }
@@ -2202,7 +2203,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
                 {
                     // Register that we're waiting for member chunks
                     _pendingMemberChunks.TryAdd(guildId, 1);
-                    await _gateway!.RequestGuildMembersAsync(guildId.ToString());
+                    await _gateway!.RequestGuildMembersAsync(guildId.ToString(CultureInfo.InvariantCulture));
                     needsMembers = true;
 
                     // Set up a timeout to prevent waiting forever

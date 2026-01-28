@@ -1,3 +1,4 @@
+using System.Globalization;
 using SimpleDiscordNet.Entities;
 using SimpleDiscordNet.Primitives;
 
@@ -112,13 +113,13 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
         => _bot.DeleteMessageAsync(channelId, messageId, ct);
 
     public Task<DiscordChannel?> CreateChannelAsync(ulong guildId, string name, ChannelType type, string? parentId = null, object[]? permissionOverwrites = null, CancellationToken ct = default)
-        => _bot.CreateChannelAsync(guildId.ToString(), name, type, parentId, permissionOverwrites, ct);
+        => _bot.CreateChannelAsync(guildId.ToString(CultureInfo.InvariantCulture), name, type, parentId, permissionOverwrites, ct);
 
     public Task DeleteChannelAsync(ulong channelId, CancellationToken ct = default)
-        => _bot.DeleteChannelAsync(channelId.ToString(), ct);
+        => _bot.DeleteChannelAsync(channelId.ToString(CultureInfo.InvariantCulture), ct);
 
     public Task<DiscordChannel?> ModifyChannelAsync(ulong channelId, string? name = null, string? parentId = null, int? position = null, string? topic = null, bool? nsfw = null, int? bitrate = null, int? userLimit = null, int? rateLimitPerUser = null, CancellationToken ct = default)
-        => _bot.ModifyChannelAsync(channelId.ToString(), name, null, parentId, position, topic, nsfw, bitrate, userLimit, rateLimitPerUser, ct);
+        => _bot.ModifyChannelAsync(channelId.ToString(CultureInfo.InvariantCulture), name, null, parentId, position, topic, nsfw, bitrate, userLimit, rateLimitPerUser, ct);
 
     public Task SetChannelPermissionAsync(string channelId, string targetId, int type, ulong allow, ulong deny, CancellationToken ct = default)
         => _bot.SetChannelPermissionAsync(channelId, targetId, type, allow, deny, ct);

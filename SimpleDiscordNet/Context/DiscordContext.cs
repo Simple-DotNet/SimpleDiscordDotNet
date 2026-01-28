@@ -1,3 +1,4 @@
+using System.Globalization;
 using SimpleDiscordNet.Collections;
 using SimpleDiscordNet.Entities;
 
@@ -139,7 +140,7 @@ public static class DiscordContext
 
     /// <summary>Find a specific guild by ID (string - parses to ulong). Example: var guild = DiscordContext.GetGuild("123456789012345678");</summary>
     public static DiscordGuild? GetGuild(string guildId)
-        => ulong.TryParse(guildId, out ulong id) ? Guilds.FirstOrDefault(g => g.Id == id) : null;
+        => ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) ? Guilds.FirstOrDefault(g => g.Id == id) : null;
 
     /// <summary>Find a specific guild by ID (ulong). Example: var guild = DiscordContext.GetGuild(123456789012345678UL);</summary>
     public static DiscordGuild? GetGuild(ulong guildId)
@@ -148,7 +149,7 @@ public static class DiscordContext
     /// <summary>Find a specific guild by ID (ReadOnlySpan&lt;char&gt; - parses to ulong)</summary>
     public static DiscordGuild? GetGuild(ReadOnlySpan<char> guildId)
     {
-        if (ulong.TryParse(guildId, out ulong id))
+        if (ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id))
         {
             return Guilds.FirstOrDefault(g => g.Id == id);
         }
