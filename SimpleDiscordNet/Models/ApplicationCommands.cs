@@ -7,7 +7,7 @@ namespace SimpleDiscordNet.Models;
 public sealed class ApplicationCommandDefinition
 {
     public required string name { get; set; }
-    public int type { get; set; } // 1 = SUB_COMMAND/SUB_COMMAND_GROUP, 3 = STRING, 4 = INTEGER, 5 = BOOLEAN, 6 = USER, 7 = CHANNEL, 8 = ROLE, 9 = MENTIONABLE, 10 = NUMBER, 11 = ATTACHMENT
+    public int type { get; set; } // 1 = SUB_COMMAND, 2 = SUB_COMMAND_GROUP, 3 = STRING, 4 = INTEGER, 5 = BOOLEAN, 6 = USER, 7 = CHANNEL, 8 = ROLE, 9 = MENTIONABLE, 10 = NUMBER, 11 = ATTACHMENT
     public required string description { get; set; }
     public ApplicationCommandDefinition[]? options { get; set; } // For subcommands or parameters
     public bool? required { get; set; } // For command options

@@ -3,7 +3,8 @@ namespace SimpleDiscordNet.Commands;
 /// <summary>
 /// Marks a method as a slash command handler.
 /// Use together with <see cref="SlashCommandGroupAttribute"/> on the containing class
-/// to create grouped subcommands, or apply to a method in any class for a standalone command.
+/// to create grouped subcommands, optionally with <see cref="SlashCommandSubGroupAttribute"/> for subgrouped subcommands,
+/// or apply to a method in any class for a standalone command.
 /// Names are normalized to lowercase and must be 1-32 chars of a-z, 0-9, '-', '_'.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]

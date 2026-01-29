@@ -32,9 +32,11 @@ public sealed record InteractionCreateEvent
 
 public sealed record ApplicationCommandData
 {
-    // Top-level command name (group when using subcommands)
+    // Top-level command name
     public required string Name { get; init; }
-    // When present, this is the subcommand name under the group
+    // When present, this is the subcommand group name under the top-level command
+    public string? SubcommandGroup { get; init; }
+    // When present, this is the subcommand name (direct or under SubcommandGroup)
     public string? Subcommand { get; init; }
     public IReadOnlyList<InteractionOption> Options { get; init; } = [];
 }

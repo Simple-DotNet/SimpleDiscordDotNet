@@ -617,61 +617,74 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                     // command data
                     JsonElement d = data.GetProperty("data");
                     string name = d.GetProperty("name").GetString()!;
+                    string? subGroup = null;
                     string? sub = null;
                     List<InteractionOption> options = [];
+
+                    static void AddOptions(List<InteractionOption> target, JsonElement source)
+                    {
+                        foreach (JsonElement o in source.EnumerateArray())
+                        {
+                            string oname = o.GetProperty("name").GetString()!;
+                            string? s = null; long? i = null; bool? b = null;
+                            if (o.TryGetProperty("value", out JsonElement val))
+                            {
+                                switch (val.ValueKind)
+                                {
+                                    case JsonValueKind.String: s = val.GetString(); break;
+                                    case JsonValueKind.Number: if (val.TryGetInt64(out long li)) i = li; break;
+                                    case JsonValueKind.True: b = true; break;
+                                    case JsonValueKind.False: b = false; break;
+                                }
+                            }
+                            target.Add(new InteractionOption { Name = oname, String = s, Integer = i, Boolean = b });
+                        }
+                    }
+
                     if (d.TryGetProperty("options", out JsonElement opts) && opts.ValueKind == JsonValueKind.Array)
                     {
                         if (opts.GetArrayLength() > 0)
                         {
                             JsonElement first = opts[0];
-                            if (first.TryGetProperty("type", out JsonElement tProp) && tProp.ValueKind == JsonValueKind.Number && tProp.GetInt32() == 1)
+                            if (first.TryGetProperty("type", out JsonElement tProp) && tProp.ValueKind == JsonValueKind.Number)
                             {
-                                // SUB_COMMAND case
-                                sub = first.GetProperty("name").GetString();
-                                if (first.TryGetProperty("options", out JsonElement subOpts) && subOpts.ValueKind == JsonValueKind.Array)
+                                int optionType = tProp.GetInt32();
+                                if (optionType == 2)
                                 {
-                                    foreach (JsonElement o in subOpts.EnumerateArray())
+                                    // SUB_COMMAND_GROUP case
+                                    subGroup = first.GetProperty("name").GetString();
+                                    if (first.TryGetProperty("options", out JsonElement groupOpts) && groupOpts.ValueKind == JsonValueKind.Array && groupOpts.GetArrayLength() > 0)
                                     {
-                                        string oname = o.GetProperty("name").GetString()!;
-                                        string? s = null; long? i = null; bool? b = null;
-                                        if (o.TryGetProperty("value", out JsonElement val))
+                                        JsonElement groupFirst = groupOpts[0];
+                                        if (groupFirst.TryGetProperty("type", out JsonElement stProp) && stProp.ValueKind == JsonValueKind.Number && stProp.GetInt32() == 1)
                                         {
-                                            switch (val.ValueKind)
+                                            sub = groupFirst.GetProperty("name").GetString();
+                                            if (groupFirst.TryGetProperty("options", out JsonElement subOpts) && subOpts.ValueKind == JsonValueKind.Array)
                                             {
-                                                case JsonValueKind.String: s = val.GetString(); break;
-                                                case JsonValueKind.Number: if (val.TryGetInt64(out long li)) i = li; break;
-                                                case JsonValueKind.True: b = true; break;
-                                                case JsonValueKind.False: b = false; break;
+                                                AddOptions(options, subOpts);
                                             }
                                         }
-                                        options.Add(new InteractionOption { Name = oname, String = s, Integer = i, Boolean = b });
                                     }
                                 }
-                            }
-                            else
-                            {
-                                // Flat options (no subcommand)
-                                foreach (JsonElement o in opts.EnumerateArray())
+                                else if (optionType == 1)
                                 {
-                                    string oname = o.GetProperty("name").GetString()!;
-                                    string? s = null; long? i = null; bool? b = null;
-                                    if (o.TryGetProperty("value", out JsonElement val))
+                                    // SUB_COMMAND case
+                                    sub = first.GetProperty("name").GetString();
+                                    if (first.TryGetProperty("options", out JsonElement subOpts) && subOpts.ValueKind == JsonValueKind.Array)
                                     {
-                                        switch (val.ValueKind)
-                                        {
-                                            case JsonValueKind.String: s = val.GetString(); break;
-                                            case JsonValueKind.Number: if (val.TryGetInt64(out long li)) i = li; break;
-                                            case JsonValueKind.True: b = true; break;
-                                            case JsonValueKind.False: b = false; break;
-                                        }
+                                        AddOptions(options, subOpts);
                                     }
-                                    options.Add(new InteractionOption { Name = oname, String = s, Integer = i, Boolean = b });
+                                }
+                                else
+                                {
+                                    // Flat options (no subcommand)
+                                    AddOptions(options, opts);
                                 }
                             }
                         }
                     }
 
-                    ApplicationCommandData cmd = new() { Name = name, Subcommand = sub, Options = options };
+                    ApplicationCommandData cmd = new() { Name = name, SubcommandGroup = subGroup, Subcommand = sub, Options = options };
                     InteractionCreateEvent evt = new()
                     {
                         Id = id,

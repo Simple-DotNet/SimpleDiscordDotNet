@@ -1,8 +1,9 @@
 namespace SimpleDiscordNet.Commands;
 
 /// <summary>
-/// Marks a class as a slash command group. All methods in the class annotated with
-/// <see cref="SlashCommandAttribute"/> become subcommands under this group.
+/// Marks a class as a top-level slash command group. All methods in the class annotated with
+/// <see cref="SlashCommandAttribute"/> become subcommands under this group, or under a
+/// <see cref="SlashCommandSubGroupAttribute"/> when applied.
 /// Group name is normalized to lowercase and must be 1-32 chars of a-z, 0-9, '-', '_'.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]

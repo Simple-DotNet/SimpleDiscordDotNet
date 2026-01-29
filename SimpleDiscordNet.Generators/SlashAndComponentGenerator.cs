@@ -14,6 +14,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
 {
     private const string SlashAttr = "SimpleDiscordNet.Commands.SlashCommandAttribute";
     private const string SlashGroupAttr = "SimpleDiscordNet.Commands.SlashCommandGroupAttribute";
+    private const string SlashSubGroupAttr = "SimpleDiscordNet.Commands.SlashCommandSubGroupAttribute";
     private const string ComponentAttr = "SimpleDiscordNet.Commands.ComponentHandlerAttribute";
     private const string ButtonHandlerAttr = "SimpleDiscordNet.Commands.ButtonHandlerAttribute";
     private const string SelectMenuHandlerAttr = "SimpleDiscordNet.Commands.SelectMenuHandlerAttribute";
@@ -107,9 +108,11 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
 
         if (!isSlash && !isComponent) return null;
 
-        // Group attribute on containing type
+        // Group attributes on containing type
         string? groupName = null;
         string? groupDescription = null;
+        string? subGroupName = null;
+        string? subGroupDescription = null;
         if (ms.ContainingType is { } ct)
         {
             foreach (var ad in ct.GetAttributes())
@@ -121,7 +124,13 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                         groupName = ad.ConstructorArguments[0].Value as string;
                     if (ad.ConstructorArguments.Length >= 2)
                         groupDescription = ad.ConstructorArguments[1].Value as string;
-                    break;
+                }
+                else if (name == SlashSubGroupAttr)
+                {
+                    if (ad.ConstructorArguments.Length >= 1)
+                        subGroupName = ad.ConstructorArguments[0].Value as string;
+                    if (ad.ConstructorArguments.Length >= 2)
+                        subGroupDescription = ad.ConstructorArguments[1].Value as string;
                 }
                 // Check for [NoDefer] on the class level (only if method didn't have explicit [NoDefer])
                 else if (name == NoDeferAttr && !methodHasNoDefer)
@@ -334,6 +343,8 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             SlashDescription = slashDescription,
             GroupName = groupName,
             GroupDescription = groupDescription,
+            SubGroupName = subGroupName,
+            SubGroupDescription = subGroupDescription,
             AutoDefer = autoDefer,
             DeferEphemeral = deferEphemeral,
             RequiredPermissions = requiredPermissions,
@@ -359,21 +370,55 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         // Organize slash commands
         var ungrouped = new List<Candidate>();
         var grouped = new Dictionary<string, List<Candidate>>(StringComparer.Ordinal);
+        var subGrouped = new Dictionary<string, Dictionary<string, List<Candidate>>>(StringComparer.Ordinal);
 
         foreach (var c in commands)
         {
             var normName = NormalizeName(c.SlashName!);
             c.SlashName = normName;
+            if (!string.IsNullOrWhiteSpace(c.SubGroupName) && string.IsNullOrWhiteSpace(c.GroupName))
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                    id: "SDN002",
+                    title: "Subcommand group requires a top-level command group",
+                    messageFormat: "Type '{0}' uses SlashCommandSubGroupAttribute but does not declare a SlashCommandGroupAttribute.",
+                    category: "SimpleDiscordNet",
+                    DiagnosticSeverity.Error,
+                    isEnabledByDefault: true),
+                    Location.None,
+                    c.ContainingType));
+                continue;
+            }
+
             if (!string.IsNullOrWhiteSpace(c.GroupName))
             {
                 var grp = NormalizeName(c.GroupName!);
                 c.GroupName = grp;
-                if (!grouped.TryGetValue(grp, out var list))
+                if (!string.IsNullOrWhiteSpace(c.SubGroupName))
                 {
-                    list = new List<Candidate>();
-                    grouped[grp] = list;
+                    var subGrp = NormalizeName(c.SubGroupName!);
+                    c.SubGroupName = subGrp;
+                    if (!subGrouped.TryGetValue(grp, out var groupDict))
+                    {
+                        groupDict = new Dictionary<string, List<Candidate>>(StringComparer.Ordinal);
+                        subGrouped[grp] = groupDict;
+                    }
+                    if (!groupDict.TryGetValue(subGrp, out var list))
+                    {
+                        list = new List<Candidate>();
+                        groupDict[subGrp] = list;
+                    }
+                    list.Add(c);
                 }
-                list.Add(c);
+                else
+                {
+                    if (!grouped.TryGetValue(grp, out var list))
+                    {
+                        list = new List<Candidate>();
+                        grouped[grp] = list;
+                    }
+                    list.Add(c);
+                }
             }
             else
             {
@@ -384,16 +429,26 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         // Build definitions array source
         var defsBuilder = new StringBuilder();
         defsBuilder.AppendLine("new global::SimpleDiscordNet.Models.ApplicationCommandDefinition[] {");
-        foreach (var g in grouped)
+        var topLevelNames = new HashSet<string>(grouped.Keys, StringComparer.Ordinal);
+        topLevelNames.UnionWith(subGrouped.Keys);
+        foreach (var topName in topLevelNames)
         {
+            grouped.TryGetValue(topName, out var direct);
+            subGrouped.TryGetValue(topName, out var subGroups);
+
+            var groupCandidate = direct?.FirstOrDefault()
+                ?? subGroups?.Values.FirstOrDefault()?.FirstOrDefault();
+            if (groupCandidate is null) continue;
+
             defsBuilder.AppendLine("    new global::SimpleDiscordNet.Models.ApplicationCommandDefinition { ");
-            defsBuilder.AppendLine($"        name = \"{g.Key}\", ");
+            defsBuilder.AppendLine($"        name = \"{topName}\", ");
             defsBuilder.AppendLine("        type = 1,");
-            var gdesc = g.Value.Count > 0 && !string.IsNullOrWhiteSpace(g.Value[0]?.GroupDescription) ? g.Value[0].GroupDescription!.Replace("\"", "\\\"") : "group";
+            var gdesc = !string.IsNullOrWhiteSpace(groupCandidate.GroupDescription) ? groupCandidate.GroupDescription!.Replace("\"", "\\\"") : "group";
             defsBuilder.AppendLine($"        description = \"{gdesc}\",");
 
-            // Add default_member_permissions if any command in the group has RequiredPermissions
-            var groupPerms = g.Value.FirstOrDefault(c => c.RequiredPermissions.HasValue)?.RequiredPermissions;
+            // Add default_member_permissions if any command under this top-level has RequiredPermissions
+            var groupPerms = direct?.FirstOrDefault(c => c.RequiredPermissions.HasValue)?.RequiredPermissions
+                             ?? subGroups?.SelectMany(g => g.Value).FirstOrDefault(c => c.RequiredPermissions.HasValue)?.RequiredPermissions;
             if (groupPerms.HasValue)
             {
                 defsBuilder.AppendLine($"        default_member_permissions = \"{groupPerms.Value.ToString(CultureInfo.InvariantCulture)}\",");
@@ -401,16 +456,43 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
 
             defsBuilder.AppendLine("        options = new global::SimpleDiscordNet.Models.ApplicationCommandDefinition[] {");
 
-            var seen = new HashSet<(string, string)>();
-            foreach (var sc in g.Value)
+            if (direct is not null)
             {
-                var key = (sc.SlashName!, sc.SlashDescription ?? "command");
-                if (!seen.Add(key)) continue;
+                var seen = new HashSet<(string, string)>();
+                foreach (var sc in direct)
+                {
+                    var key = (sc.SlashName!, sc.SlashDescription ?? "command");
+                    if (!seen.Add(key)) continue;
 
-                var desc = string.IsNullOrWhiteSpace(sc.SlashDescription) ? "command" : sc.SlashDescription!.Replace("\"", "\\\"");
-                var optsArray = BuildOptionsArray(sc.Options);
-                defsBuilder.AppendLine($"            new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{sc.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray} }},");
+                    var desc = string.IsNullOrWhiteSpace(sc.SlashDescription) ? "command" : sc.SlashDescription!.Replace("\"", "\\\"");
+                    var optsArray = BuildOptionsArray(sc.Options);
+                    defsBuilder.AppendLine($"            new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{sc.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray} }},");
+                }
             }
+
+            if (subGroups is not null)
+            {
+                foreach (var sg in subGroups)
+                {
+                    var sgdesc = sg.Value.Count > 0 && !string.IsNullOrWhiteSpace(sg.Value[0]?.SubGroupDescription)
+                        ? sg.Value[0].SubGroupDescription!.Replace("\"", "\\\"")
+                        : "group";
+
+                    defsBuilder.AppendLine($"            new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{sg.Key}\", type = 2, description = \"{sgdesc}\", options = new global::SimpleDiscordNet.Models.ApplicationCommandDefinition[] {{");
+                    var seen = new HashSet<(string, string)>();
+                    foreach (var sc in sg.Value)
+                    {
+                        var key = (sc.SlashName!, sc.SlashDescription ?? "command");
+                        if (!seen.Add(key)) continue;
+
+                        var desc = string.IsNullOrWhiteSpace(sc.SlashDescription) ? "command" : sc.SlashDescription!.Replace("\"", "\\\"");
+                        var optsArray = BuildOptionsArray(sc.Options);
+                        defsBuilder.AppendLine($"                new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{sc.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray} }},");
+                    }
+                    defsBuilder.AppendLine("            }},");
+                }
+            }
+
             defsBuilder.AppendLine("        }");
             defsBuilder.AppendLine("    },");
         }
@@ -580,6 +662,29 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         }
         sb.AppendLine("        };");
 
+        // SubGrouped
+        sb.AppendLine("        public global::System.Collections.Generic.IReadOnlyDictionary<string, global::System.Collections.Generic.IReadOnlyDictionary<string, global::System.Collections.Generic.IReadOnlyDictionary<string, global::SimpleDiscordNet.Commands.CommandHandler>>> SubGrouped { get; } = new global::System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.IReadOnlyDictionary<string, global::System.Collections.Generic.IReadOnlyDictionary<string, global::SimpleDiscordNet.Commands.CommandHandler>>>(System.StringComparer.Ordinal)");
+        sb.AppendLine("        {");
+        foreach (var g in subGrouped)
+        {
+            sb.AppendLine($"            [\"{g.Key}\"] = new global::System.Collections.Generic.Dictionary<string, global::System.Collections.Generic.IReadOnlyDictionary<string, global::SimpleDiscordNet.Commands.CommandHandler>>(System.StringComparer.Ordinal)");
+            sb.AppendLine("            {");
+            foreach (var sg in g.Value)
+            {
+                sb.AppendLine($"                [\"{sg.Key}\"] = new global::System.Collections.Generic.Dictionary<string, global::SimpleDiscordNet.Commands.CommandHandler>(System.StringComparer.Ordinal)");
+                sb.AppendLine("                {");
+                foreach (var sc in sg.Value)
+                {
+                    var instExpr = sc.IsStatic ? null : (sc.HasDefaultCtor ? $"__InstHolder_{SanitizeId(sc.ContainingType)}.Value" : null);
+                    if (!sc.IsStatic && instExpr is null) continue;
+                    sb.AppendLine($"                    [\"{sc.SlashName}\"] = {BuildHandlerFactory(sc)},");
+                }
+                sb.AppendLine("                },");
+            }
+            sb.AppendLine("            },");
+        }
+        sb.AppendLine("        };");
+
         // Components
         sb.AppendLine("        public global::System.Collections.Generic.IReadOnlyList<global::SimpleDiscordNet.Commands.ComponentHandler> Components { get; } = new global::System.Collections.Generic.List<global::SimpleDiscordNet.Commands.ComponentHandler>");
         sb.AppendLine("        {");
@@ -610,6 +715,17 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             {
                 var desc = string.IsNullOrWhiteSpace(sc.SlashDescription) ? "command" : sc.SlashDescription!.Replace("\"", "\\\"");
                 sb.AppendLine($"            [\"/{g.Key} {sc.SlashName}\"] = \"{desc}\",");
+            }
+        }
+        foreach (var g in subGrouped)
+        {
+            foreach (var sg in g.Value)
+            {
+                foreach (var sc in sg.Value)
+                {
+                    var desc = string.IsNullOrWhiteSpace(sc.SlashDescription) ? "command" : sc.SlashDescription!.Replace("\"", "\\\"");
+                    sb.AppendLine($"            [\"/{g.Key} {sg.Key} {sc.SlashName}\"] = \"{desc}\",");
+                }
             }
         }
         sb.AppendLine("        };");
@@ -794,6 +910,8 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         public string? SlashDescription { get; set; }
         public string? GroupName { get; set; }
         public string? GroupDescription { get; set; }
+        public string? SubGroupName { get; set; }
+        public string? SubGroupDescription { get; set; }
         public bool AutoDefer { get; set; }
         public bool DeferEphemeral { get; set; }
         public ulong? RequiredPermissions { get; set; } // Discord permission flags as ulong

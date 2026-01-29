@@ -10,6 +10,7 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
     // New delegate-based storage populated by source generator at runtime
     private readonly Dictionary<string, CommandHandler> _ungrouped = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, CommandHandler>> _grouped = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, Dictionary<string, CommandHandler>>> _subGrouped = new(StringComparer.Ordinal);
     private readonly CommandPermissionService? _permissionService = permissionService;
 
     public void RegisterGenerated(string? group, string name, CommandHandler handler)
@@ -26,6 +27,30 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
         }
     }
 
+    public void RegisterGenerated(string? group, string? subGroup, string name, CommandHandler handler)
+    {
+        if (string.IsNullOrWhiteSpace(subGroup))
+        {
+            RegisterGenerated(group, name, handler);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(group))
+        {
+            _ungrouped[name] = handler;
+            return;
+        }
+
+        ref Dictionary<string, Dictionary<string, CommandHandler>>? groupDict = ref CollectionsMarshal.GetValueRefOrAddDefault(_subGrouped, group, out _);
+        groupDict ??= new Dictionary<string, Dictionary<string, CommandHandler>>(StringComparer.Ordinal);
+        if (!groupDict.TryGetValue(subGroup, out Dictionary<string, CommandHandler>? subDict))
+        {
+            subDict = new Dictionary<string, CommandHandler>(StringComparer.Ordinal);
+            groupDict[subGroup] = subDict;
+        }
+        subDict[name] = handler;
+    }
+
     public void RegisterGeneratedManifest(IGeneratedManifest manifest)
     {
         foreach (var kv in manifest.Ungrouped)
@@ -40,6 +65,26 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
             foreach ((string key, CommandHandler value) in grp.Value)
                 inner[key] = value;
         }
+        foreach (var grp in manifest.SubGrouped)
+        {
+            if (!_subGrouped.TryGetValue(grp.Key, out Dictionary<string, Dictionary<string, CommandHandler>>? groupDict))
+            {
+                groupDict = new Dictionary<string, Dictionary<string, CommandHandler>>(StringComparer.Ordinal);
+                _subGrouped[grp.Key] = groupDict;
+            }
+
+            foreach (var subGroup in grp.Value)
+            {
+                if (!groupDict.TryGetValue(subGroup.Key, out Dictionary<string, CommandHandler>? subDict))
+                {
+                    subDict = new Dictionary<string, CommandHandler>(StringComparer.Ordinal);
+                    groupDict[subGroup.Key] = subDict;
+                }
+
+                foreach ((string key, CommandHandler value) in subGroup.Value)
+                    subDict[key] = value;
+            }
+        }
     }
 
     public static ApplicationCommandDefinition[] GetDefinitions(ApplicationCommandDefinition[]? fromGenerator) => fromGenerator ?? [];
@@ -53,30 +98,44 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
         }
 
         string top = data.Name;
+        string? group = data.SubcommandGroup;
         string? sub = data.Subcommand;
 
         // Only generated delegate-based handlers are supported
-        if (sub is not null)
+        if (group is not null && sub is not null)
+        {
+            if (_subGrouped.TryGetValue(top, out Dictionary<string, Dictionary<string, CommandHandler>>? groupDict) &&
+                groupDict.TryGetValue(group, out Dictionary<string, CommandHandler>? subDict) &&
+                subDict.TryGetValue(sub, out CommandHandler? handler))
+            {
+                await InvokeGeneratedAsync(handler, e, rest, ct, top, sub, group).ConfigureAwait(false);
+                return;
+            }
+        }
+        else if (sub is not null)
         {
             if (_grouped.TryGetValue(top, out Dictionary<string, CommandHandler>? dict) && dict.TryGetValue(sub, out CommandHandler? handler))
             {
-                await InvokeGeneratedAsync(handler, e, rest, ct, top, sub).ConfigureAwait(false);
+                await InvokeGeneratedAsync(handler, e, rest, ct, top, sub, null).ConfigureAwait(false);
                 return;
             }
         }
         else if (_ungrouped.TryGetValue(top, out var ungrouped))
         {
-            await InvokeGeneratedAsync(ungrouped, e, rest, ct, top, null).ConfigureAwait(false);
+            await InvokeGeneratedAsync(ungrouped, e, rest, ct, top, null, null).ConfigureAwait(false);
             return;
         }
 
-        logger.Log(LogLevel.Warning, $"No generated handler found for command '{top}'{(sub is null ? string.Empty : $"/{sub}")}. Ensure the source generator is referenced and attributes are correct.");
+        string path = group is null
+            ? (sub is null ? top : $"{top}/{sub}")
+            : $"{top}/{group}/{sub}";
+        logger.Log(LogLevel.Warning, $"No generated handler found for command '{path}'. Ensure the source generator is referenced and attributes are correct.");
 
         // Send error response to Discord so it doesn't timeout
         try
         {
             InteractionContext ctx = new InteractionContext(rest, e);
-            await ctx.RespondAsync($"❌ Command handler not found: `{top}{(sub is null ? string.Empty : $"/{sub}")}`", null, true, ct).ConfigureAwait(false);
+            await ctx.RespondAsync($"❌ Command handler not found: `{path}`", null, true, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -84,7 +143,7 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
         }
     }
 
-    private async Task InvokeGeneratedAsync(CommandHandler handler, InteractionCreateEvent e, RestClient rest, CancellationToken ct, string top, string? sub)
+    private async Task InvokeGeneratedAsync(CommandHandler handler, InteractionCreateEvent e, RestClient rest, CancellationToken ct, string top, string? sub, string? group)
     {
         InteractionContext? ctx = null;
         bool deferred = false;
@@ -113,7 +172,10 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
         }
         catch (Exception ex)
         {
-            logger.Log(LogLevel.Error, $"Error executing slash command '{top}'{(sub is null ? string.Empty : $"/{sub}")}: {ex.Message}", ex);
+            string path = group is null
+                ? (sub is null ? top : $"{top}/{sub}")
+                : $"{top}/{group}/{sub}";
+            logger.Log(LogLevel.Error, $"Error executing slash command '{path}': {ex.Message}", ex);
 
             // Send error response to Discord so user knows something went wrong
             if (ctx is not null)

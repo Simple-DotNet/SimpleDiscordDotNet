@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.8.2</Version>
+        <Version>1.8.3</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.8.2: Culture-invariant parsing and formatting for API headers, snowflake IDs, timestamps, and generated command definitions to prevent locale-related errors.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.8.3: Add slash command subcommand groups (/command group subcommand) with SlashCommandSubGroupAttribute, plus generator/runtime support for grouped dispatch.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
