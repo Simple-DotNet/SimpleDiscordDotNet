@@ -253,7 +253,8 @@ internal sealed partial class GatewayClient
         return new DiscordUser
         {
             Id = obj.GetProperty("id").GetDiscordId(),
-            Username = obj.TryGetProperty("username", out JsonElement un) ? (un.GetString() ?? string.Empty) : string.Empty
+            Username = obj.TryGetProperty("username", out JsonElement un) ? (un.GetString() ?? string.Empty) : string.Empty,
+            Bot = obj.TryGetProperty("bot", out JsonElement botEl) && botEl.ValueKind == JsonValueKind.True ? true : null
         };
     }
 

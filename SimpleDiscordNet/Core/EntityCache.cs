@@ -488,6 +488,15 @@ internal sealed class EntityCache
 
     public void UpsertUser(DiscordUser user)
     {
+        // Preserve Bot field if it was already set and the new user doesn't have it
+        if (_users.TryGetValue(user.Id, out DiscordUser? existing))
+        {
+            // If existing user has Bot field set, preserve it when new user doesn't
+            if (existing.Bot.HasValue && !user.Bot.HasValue)
+            {
+                user.Bot = existing.Bot;
+            }
+        }
         _users[user.Id] = user;
     }
 

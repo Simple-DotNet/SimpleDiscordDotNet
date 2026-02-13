@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.8.4</Version>
+        <Version>1.8.6</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.8.4: Fix 1.8.3 package build missing SlashCommandSubGroupAttribute in the public API.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.8.6: Critical bot detection fixes - Author.Bot field now properly extracted from MESSAGE_CREATE events. DiscordContext.BotUser now correctly populated from READY event and cached. User.IsBot and User.IsCurrentBot now work reliably. EntityCache now preserves bot status when merging user data. v1.8.5: AOT compatibility - replaced anonymous types with strongly-typed CreateDMChannelRequest.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
