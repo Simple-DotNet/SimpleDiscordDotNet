@@ -1339,7 +1339,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     public async Task<DiscordMessage?> SendDMAsync(string userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
     {
         // Create DM channel first
-        var dmPayload = new { recipient_id = userId };
+        CreateDMChannelRequest dmPayload = new() { recipient_id = userId };
 
         // Create the DM channel - Discord will return the existing one if it exists
         DiscordChannel? dmChannel = await _rest.PostAsync<DiscordChannel>("/users/@me/channels", dmPayload, ct).ConfigureAwait(false);
@@ -1639,6 +1639,23 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     private void OnUserUpdate(object? sender, DiscordUser u)
     {
         _botUser = u; // Store bot's own user
+        _cache.UpsertUser(u); // Cache bot user so it's accessible via DiscordContext
+
+        // Update DiscordContext.BotUser reference
+        DiscordContext.SetProvider(
+            this,
+            u,
+            _cache.SnapshotGuilds,
+            _cache.SnapshotChannels,
+            _cache.SnapshotMembers,
+            _cache.SnapshotUsers,
+            _cache.SnapshotRoles,
+            _cache.LiveGuilds,
+            () => _cache.LiveChannels,
+            () => _cache.LiveMembers,
+            _cache.GetLiveChannels,
+            _cache.GetLiveMembers);
+
         DiscordEvents.RaiseBotUserUpdated(this, new BotUserEvent { User = u });
     }
 
@@ -1714,8 +1731,11 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
                     {
                         Id = authorId,
                         Username = rawMsg.Author.Username,
+                        Bot = rawMsg.Author.Bot,
                         Guilds = []
                     };
+                    // Cache this user for future lookups
+                    _cache.UpsertUser(author);
                 }
 
                 // Channel is required - if we don't have it, skip the event

@@ -165,6 +165,14 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
         {
             if (data.TryGetProperty("session_id", out JsonElement sid))
                 _sessionId = sid.GetString();
+
+            // Extract bot user information from READY event
+            if (data.TryGetProperty("user", out JsonElement userObj))
+            {
+                DiscordUser botUser = ParseUser(userObj);
+                UserUpdate?.Invoke(this, botUser);
+            }
+
             return;
         }
 
@@ -176,7 +184,12 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                 string channelId = data.GetProperty("channel_id").GetString()!;
                 string content = data.GetProperty("content").GetString() ?? string.Empty;
                 JsonElement authorObj = data.GetProperty("author");
-                Author author = new() { Id = authorObj.GetProperty("id").GetDiscordId(), Username = authorObj.GetProperty("username").GetString()! };
+                Author author = new()
+                {
+                    Id = authorObj.GetProperty("id").GetDiscordId(),
+                    Username = authorObj.GetProperty("username").GetString()!,
+                    Bot = authorObj.TryGetProperty("bot", out JsonElement botEl) && botEl.ValueKind == JsonValueKind.True ? true : null
+                };
                 string? guildId = null;
                 if (data.TryGetProperty("guild_id", out JsonElement gidEl))
                 {

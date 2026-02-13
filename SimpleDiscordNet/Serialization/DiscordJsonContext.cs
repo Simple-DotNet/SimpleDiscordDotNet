@@ -29,6 +29,7 @@ namespace SimpleDiscordNet.Serialization;
 [JsonSerializable(typeof(DiscordMessage))]
 [JsonSerializable(typeof(Embed))]
 [JsonSerializable(typeof(CreateMessageRequest))]
+[JsonSerializable(typeof(CreateDMChannelRequest))]
 [JsonSerializable(typeof(WebhookMessageRequest))]
 [JsonSerializable(typeof(OpenModalRequest))]
 [JsonSerializable(typeof(BulkDeleteMessagesRequest))]
