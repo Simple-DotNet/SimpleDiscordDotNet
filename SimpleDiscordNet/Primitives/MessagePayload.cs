@@ -1,4 +1,5 @@
 using SimpleDiscordNet.Models;
+using SimpleDiscordNet.Models.Requests;
 
 namespace SimpleDiscordNet.Primitives;
 
@@ -13,4 +14,7 @@ public sealed class MessagePayload
     public object[]? components { get; set; }
     public object? allowed_mentions { get; set; }
     public object[]? attachments { get; set; }
+    public MessageReference? message_reference { get; set; }
+    public string? thread_name { get; set; }
+    public string[]? applied_tags { get; set; }
 }

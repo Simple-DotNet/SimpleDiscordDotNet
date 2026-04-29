@@ -80,7 +80,13 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
     public Task AddRoleToMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default)
         => _bot.AddRoleToMemberAsync(guildId, userId, roleId, ct);
 
+    public Task AddRoleToMemberAsync(ulong guildId, ulong userId, ulong roleId, CancellationToken ct = default)
+        => _bot.AddRoleToMemberAsync(guildId, userId, roleId, ct);
+
     public Task RemoveRoleFromMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default)
+        => _bot.RemoveRoleFromMemberAsync(guildId, userId, roleId, ct);
+
+    public Task RemoveRoleFromMemberAsync(ulong guildId, ulong userId, ulong roleId, CancellationToken ct = default)
         => _bot.RemoveRoleFromMemberAsync(guildId, userId, roleId, ct);
 
     public Task TimeoutMemberAsync(string guildId, string userId, TimeSpan duration, CancellationToken ct = default)
@@ -106,6 +112,12 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
     public Task<DiscordMessage?> SendDMAsync(string userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
         => _bot.SendDMAsync(userId, content, embed, ct);
 
+    public Task<DiscordMessage?> SendDMAsync(ulong userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
+        => _bot.SendDMAsync(userId, content, embed, ct);
+
+    public Task<DiscordUser?> ModifyCurrentUserAsync(string? username = null, string? avatarBase64 = null, CancellationToken ct = default)
+        => _bot.ModifyCurrentUserAsync(username, avatarBase64, ct);
+
     public Task PinMessageAsync(ulong channelId, ulong messageId, CancellationToken ct = default)
         => _bot.PinMessageAsync(channelId, messageId, ct);
 
@@ -128,6 +140,9 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
         => _bot.DeleteChannelPermissionAsync(channelId, overwriteId, ct);
 
     public Task<IEnumerable<DiscordMessage>> GetMessagesAsync(string channelId, int limit = 50, string? before = null, string? after = null, CancellationToken ct = default)
+        => _bot.GetMessagesAsync(channelId, limit, before, after, ct);
+
+    public Task<IEnumerable<DiscordMessage>> GetMessagesAsync(ulong channelId, int limit = 50, ulong? before = null, ulong? after = null, CancellationToken ct = default)
         => _bot.GetMessagesAsync(channelId, limit, before, after, ct);
 
     public Task BulkDeleteMessagesAsync(string channelId, string[] messageIds, CancellationToken ct = default)

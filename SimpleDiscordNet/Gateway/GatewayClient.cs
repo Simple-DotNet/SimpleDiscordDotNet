@@ -784,6 +784,39 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                     };
                     InteractionCreate?.Invoke(this, evt);
                 }
+                else if (type == 4)
+                {
+                    // Autocomplete
+                    JsonElement d = data.GetProperty("data");
+                    string commandName = d.GetProperty("name").GetString()!;
+                    List<InteractionOption> options = [];
+
+                    if (d.TryGetProperty("options", out JsonElement opts) && opts.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement o in opts.EnumerateArray())
+                        {
+                            string oname = o.GetProperty("name").GetString()!;
+                            string? value = o.TryGetProperty("value", out JsonElement val) ? (val.GetString() ?? string.Empty) : null;
+                            options.Add(new InteractionOption { Name = oname, String = value });
+                        }
+                    }
+
+                    ApplicationCommandData cmd = new() { Name = commandName, Options = options };
+                    InteractionCreateEvent evt = new()
+                    {
+                        Id = id,
+                        Token = interaction_token,
+                        ApplicationId = appId,
+                        Type = InteractionType.ApplicationCommandAutocomplete,
+                        GuildId = guildId,
+                        ChannelId = channelId,
+                        Author = author,
+                        Member = member,
+                        Guild = null,
+                        Data = cmd
+                    };
+                    InteractionCreate?.Invoke(this, evt);
+                }
             }
             catch (Exception ex) { Error?.Invoke(this, ex); }
         }

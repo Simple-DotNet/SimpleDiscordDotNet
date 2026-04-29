@@ -1,4 +1,5 @@
 using SimpleDiscordNet.Models;
+using SimpleDiscordNet.Models.Requests;
 using SimpleDiscordNet.Primitives;
 
 namespace SimpleDiscordNet;
@@ -15,6 +16,10 @@ public sealed class MessageBuilder
     private List<IComponent>? _components;
     private MentionBuilder? _mentionBuilder;
     private List<(string fileName, ReadOnlyMemory<byte> data)>? _files;
+    private string? _replyMessageId;
+    private bool? _replyFailIfNotExists;
+    private string? _threadName;
+    private List<string>? _appliedTags;
 
     /// <summary>
     /// Sets the message text content.
@@ -127,6 +132,42 @@ public sealed class MessageBuilder
     public MessageBuilder WithNoMentions()
     {
         _mentionBuilder = MentionBuilder.None();
+        return this;
+    }
+
+    /// <summary>
+    /// Sets this message as a reply to another message.
+    /// Example: builder.WithReply("123456789012345678");
+    /// </summary>
+    public MessageBuilder WithReply(string messageId, bool failIfNotExists = true)
+    {
+        _replyMessageId = messageId;
+        _replyFailIfNotExists = failIfNotExists;
+        return this;
+    }
+
+    /// <summary>
+    /// Creates this message as a forum post with a thread name.
+    /// Example: builder.WithForumPost("My Forum Post");
+    /// </summary>
+    public MessageBuilder WithForumPost(string threadName, params string[] appliedTags)
+    {
+        _threadName = threadName;
+        if (appliedTags.Length > 0)
+        {
+            _appliedTags ??= [];
+            _appliedTags.AddRange(appliedTags);
+        }
+        return this;
+    }
+
+    /// <summary>
+    /// Adds applied tags for a forum post.
+    /// </summary>
+    public MessageBuilder WithAppliedTags(params string[] tags)
+    {
+        _appliedTags ??= [];
+        _appliedTags.AddRange(tags);
         return this;
     }
 
@@ -246,7 +287,10 @@ public sealed class MessageBuilder
             embeds = embedList.Count > 0 ? embedList.ToArray() : null,
             components = components,
             allowed_mentions = _mentionBuilder?.BuildAllowedMentions(),
-            attachments = attachments
+            attachments = attachments,
+            message_reference = _replyMessageId is not null ? new MessageReference { message_id = _replyMessageId, fail_if_not_exists = _replyFailIfNotExists } : null,
+            thread_name = _threadName,
+            applied_tags = _appliedTags?.ToArray()
         };
     }
 

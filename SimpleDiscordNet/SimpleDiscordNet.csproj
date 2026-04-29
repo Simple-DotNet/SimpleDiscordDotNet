@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.8.6</Version>
+        <Version>1.9.0</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.8.6: Critical bot detection fixes - Author.Bot field now properly extracted from MESSAGE_CREATE events. DiscordContext.BotUser now correctly populated from READY event and cached. User.IsBot and User.IsCurrentBot now work reliably. EntityCache now preserves bot status when merging user data. v1.8.5: AOT compatibility - replaced anonymous types with strongly-typed CreateDMChannelRequest.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.9.0: Major API expansion - bot presence/status API (SetGameAsync, SetWatchingAsync, etc.), context menu commands ([UserContextMenu], [MessageContextMenu]), autocomplete handlers ([Autocomplete]), global command sync, guild management (ModifyGuildAsync, LeaveGuildAsync, PruneMembersAsync), webhook/emoji/sticker/invite management, message replies and forum posts, interaction followup editing, ulong ID overloads for all methods. Fixed sharding NRE in LoadCompleteGuildDataAsync. Added full Discord REST API coverage.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>

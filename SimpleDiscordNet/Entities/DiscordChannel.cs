@@ -79,6 +79,17 @@ public sealed class DiscordChannel
         => Context.DiscordContext.Operations.SendMessageAsync(Id.ToString(CultureInfo.InvariantCulture), builder, ct);
 
     /// <summary>
+    /// Sends a reply to a message in this channel.
+    /// Example: await channel.ReplyAsync(messageId, "I agree!");
+    /// </summary>
+    public Task<DiscordMessage?> ReplyAsync(string messageId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
+    {
+        var builder = new MessageBuilder().WithContent(content).WithReply(messageId);
+        if (embed is not null) builder.WithEmbed(embed);
+        return SendMessageAsync(builder, ct);
+    }
+
+    /// <summary>
     /// Deletes this channel.
     /// Example: await channel.DeleteAsync();
     /// </summary>

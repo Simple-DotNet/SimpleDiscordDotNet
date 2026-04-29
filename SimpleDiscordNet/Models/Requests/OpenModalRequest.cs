@@ -10,5 +10,5 @@ internal sealed class ModalData
 {
     public required string custom_id { get; set; }
     public required string title { get; set; }
-    public object[] components { get; set; } = Array.Empty<object>();
+    public object[] components { get; set; } = [];
 }

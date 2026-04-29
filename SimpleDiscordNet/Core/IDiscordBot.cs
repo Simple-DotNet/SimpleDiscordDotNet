@@ -1,6 +1,7 @@
 using System.Text.Json;
 using SimpleDiscordNet.Commands;
 using SimpleDiscordNet.Entities;
+using SimpleDiscordNet.Gateway;
 using SimpleDiscordNet.Models;
 using SimpleDiscordNet.Primitives;
 
@@ -37,6 +38,66 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     /// Synchronizes all registered slash commands to the specified guilds.
     /// </summary>
     Task SyncSlashCommandsAsync(IEnumerable<string> guildIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Synchronizes all registered slash commands globally.
+    /// </summary>
+    Task SyncGlobalCommandsAsync(CancellationToken ct = default);
+
+    // Presence management
+    /// <summary>
+    /// Sets the bot's online status (online, idle, dnd, invisible).
+    /// Example: await bot.SetStatusAsync(PresenceStatus.DoNotDisturb);
+    /// </summary>
+    Task SetStatusAsync(PresenceStatus status);
+
+    /// <summary>
+    /// Sets the bot's online status using a raw string.
+    /// Example: await bot.SetStatusAsync("dnd");
+    /// </summary>
+    Task SetStatusAsync(string status);
+
+    /// <summary>
+    /// Sets the bot's presence to "Playing {name}".
+    /// Example: await bot.SetGameAsync("Minecraft");
+    /// </summary>
+    Task SetGameAsync(string name);
+
+    /// <summary>
+    /// Sets the bot's presence to "Watching {name}".
+    /// Example: await bot.SetWatchingAsync("YouTube");
+    /// </summary>
+    Task SetWatchingAsync(string name);
+
+    /// <summary>
+    /// Sets the bot's presence to "Listening to {name}".
+    /// Example: await bot.SetListeningAsync("Spotify");
+    /// </summary>
+    Task SetListeningAsync(string name);
+
+    /// <summary>
+    /// Sets the bot's presence to "Streaming {name}" with a Twitch/YouTube URL.
+    /// Example: await bot.SetStreamingAsync("Live coding!", "https://twitch.tv/myChannel");
+    /// </summary>
+    Task SetStreamingAsync(string name, string url);
+
+    /// <summary>
+    /// Sets the bot's presence to "Competing in {name}".
+    /// Example: await bot.SetCompetingAsync("a tournament");
+    /// </summary>
+    Task SetCompetingAsync(string name);
+
+    /// <summary>
+    /// Full presence control. Sets status and activities across all gateway connections.
+    /// Example: await bot.SetPresenceAsync("dnd", [BotActivity.Game("hidden")]);
+    /// </summary>
+    Task SetPresenceAsync(string status, BotActivity[]? activities = null, long? since = null, bool afk = false);
+
+    /// <summary>
+    /// Full presence control using enum status.
+    /// Example: await bot.SetPresenceAsync(PresenceStatus.DoNotDisturb, [BotActivity.Game("invisible")]);
+    /// </summary>
+    Task SetPresenceAsync(PresenceStatus status, BotActivity[]? activities = null, long? since = null, bool afk = false);
 
     // Convenience REST APIs - Messaging
     /// <summary>
@@ -178,9 +239,19 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     Task AddRoleToMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default);
 
     /// <summary>
+    /// Adds a role to a guild member.
+    /// </summary>
+    Task AddRoleToMemberAsync(ulong guildId, ulong userId, ulong roleId, CancellationToken ct = default);
+
+    /// <summary>
     /// Removes a role from a guild member.
     /// </summary>
     Task RemoveRoleFromMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes a role from a guild member.
+    /// </summary>
+    Task RemoveRoleFromMemberAsync(ulong guildId, ulong userId, ulong roleId, CancellationToken ct = default);
 
     /// <summary>
     /// Modifies a guild member (nickname, roles, voice mute/deaf, timeout, etc).
@@ -313,9 +384,39 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     Task<DiscordAuditLog?> GetAuditLogAsync(ulong guildId, ulong? userId = null, int? actionType = null, ulong? before = null, ulong? after = null, int limit = 50, CancellationToken ct = default);
 
     /// <summary>
+    /// Modifies a guild's settings (name, verification level, AFK channel, etc.).
+    /// </summary>
+    Task<DiscordGuild?> ModifyGuildAsync(string guildId, string? name = null, int? verificationLevel = null, int? defaultMessageNotifications = null, int? explicitContentFilter = null, string? afkChannelId = null, int? afkTimeout = null, string? ownerId = null, string? description = null, string? preferredLocale = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Prunes inactive members from a guild. Returns number pruned or null on failure.
+    /// </summary>
+    Task<int?> PruneMembersAsync(string guildId, int days = 7, string[]? includeRoles = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets the number of members that would be pruned.
+    /// </summary>
+    Task<int?> GetPruneCountAsync(string guildId, int days = 7, string[]? includeRoles = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Makes the bot leave a guild.
+    /// </summary>
+    Task LeaveGuildAsync(string guildId, CancellationToken ct = default);
+
+    /// <summary>
     /// Sends a direct message to a user by creating a DM channel and sending a message.
     /// </summary>
     Task<DiscordMessage?> SendDMAsync(string userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sends a direct message to a user by creating a DM channel and sending a message.
+    /// </summary>
+    Task<DiscordMessage?> SendDMAsync(ulong userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Modifies the bot's own username and/or avatar.
+    /// </summary>
+    Task<DiscordUser?> ModifyCurrentUserAsync(string? username = null, string? avatarBase64 = null, CancellationToken ct = default);
 
     /// <summary>
     /// Pins a message in a channel.
@@ -333,14 +434,29 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     Task<DiscordChannel?> CreateChannelAsync(string guildId, string name, ChannelType type, string? parentId = null, object[]? permissionOverwrites = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Creates a new channel in a guild.
+    /// </summary>
+    Task<DiscordChannel?> CreateChannelAsync(ulong guildId, string name, ChannelType type, ulong? parentId = null, object[]? permissionOverwrites = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Modifies a channel.
     /// </summary>
     Task<DiscordChannel?> ModifyChannelAsync(string channelId, string? name = null, int? type = null, string? parentId = null, int? position = null, string? topic = null, bool? nsfw = null, int? bitrate = null, int? userLimit = null, int? rateLimitPerUser = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Modifies a channel.
+    /// </summary>
+    Task<DiscordChannel?> ModifyChannelAsync(ulong channelId, string? name = null, int? type = null, ulong? parentId = null, int? position = null, string? topic = null, bool? nsfw = null, int? bitrate = null, int? userLimit = null, int? rateLimitPerUser = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Deletes a channel.
     /// </summary>
     Task DeleteChannelAsync(string channelId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes a channel.
+    /// </summary>
+    Task DeleteChannelAsync(ulong channelId, CancellationToken ct = default);
 
     /// <summary>
     /// Sets or updates a channel permission overwrite for a role or member.
@@ -356,6 +472,11 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     /// Gets recent messages from a channel (up to 100).
     /// </summary>
     Task<IEnumerable<DiscordMessage>> GetMessagesAsync(string channelId, int limit = 50, string? before = null, string? after = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets recent messages from a channel (up to 100).
+    /// </summary>
+    Task<IEnumerable<DiscordMessage>> GetMessagesAsync(ulong channelId, int limit = 50, ulong? before = null, ulong? after = null, CancellationToken ct = default);
 
     /// <summary>
     /// Bulk deletes multiple messages (2-100 messages, must be less than 14 days old).

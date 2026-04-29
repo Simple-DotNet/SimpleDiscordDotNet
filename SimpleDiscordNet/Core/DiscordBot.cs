@@ -33,6 +33,7 @@ public sealed class DiscordBot : IDiscordBot
     private readonly CommandPermissionService _permissionService;
     private readonly SlashCommandService _slashCommands;
     private readonly ComponentService _components;
+    private readonly AutocompleteService _autocomplete;
     private readonly CancellationTokenSource _cts = new();
     private readonly EntityCache _cache = new();
 
@@ -143,6 +144,7 @@ public sealed class DiscordBot : IDiscordBot
         _permissionService = new CommandPermissionService(logger);
         _slashCommands = new SlashCommandService(logger, _permissionService);
         _components = new ComponentService(logger);
+        _autocomplete = new AutocompleteService(logger);
 
         // Configure synchronization context for observable collections
         if (synchronizationContext != null)
@@ -332,6 +334,11 @@ public sealed class DiscordBot : IDiscordBot
     public async Task SyncSlashCommandsAsync(IEnumerable<string> guildIds, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(guildIds);
+        IEnumerable<string> enumerable = guildIds.ToList();
+        if (!enumerable.Any())
+            throw new ArgumentException("At least one guild id must be provided for development mode.", nameof(guildIds));
+        if (enumerable.First().Equals("0", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Guild id '0' is reserved for global commands and cannot be used for development mode.", nameof(guildIds));
         ApplicationInfo app = await _rest.GetApplicationAsync(ct).ConfigureAwait(false)
                   ?? throw new InvalidOperationException("Failed to fetch application info");
         if (_generatedManifests.Count == 0)
@@ -339,10 +346,27 @@ public sealed class DiscordBot : IDiscordBot
 
         ApplicationCommandDefinition[] typed = _generatedManifests.SelectMany(m => m.Definitions).ToArray();
         object[] defs = typed.Cast<object>().ToArray();
-        foreach (string gid in guildIds)
+        foreach (string gid in enumerable)
         {
             await _rest.PutGuildCommandsAsync(app.Id, gid, defs, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Synchronizes all registered slash commands globally (available in all guilds).
+    /// Global commands may take up to 1 hour to propagate.
+    /// Example: await bot.SyncGlobalCommandsAsync();
+    /// </summary>
+    public async Task SyncGlobalCommandsAsync(CancellationToken ct = default)
+    {
+        ApplicationInfo app = await _rest.GetApplicationAsync(ct).ConfigureAwait(false)
+                  ?? throw new InvalidOperationException("Failed to fetch application info");
+        if (_generatedManifests.Count == 0)
+            throw new InvalidOperationException("No generated command manifests were found. Ensure the source generator is referenced in the application project.");
+
+        ApplicationCommandDefinition[] typed = _generatedManifests.SelectMany(m => m.Definitions).ToArray();
+        object[] defs = typed.Cast<object>().ToArray();
+        await _rest.PutGlobalCommandsAsync(app.Id, defs, ct).ConfigureAwait(false);
     }
 
     // ----- Convenience REST APIs -----
@@ -387,8 +411,11 @@ public sealed class DiscordBot : IDiscordBot
             embeds = payload.embeds,
             components = payload.components,
             allowed_mentions = payload.allowed_mentions,
-            attachments = payload.attachments
-        };
+            attachments = payload.attachments,
+            message_reference = payload.message_reference,
+            thread_name = payload.thread_name,
+            applied_tags = payload.applied_tags
+        }; 
 
         // If there are files, use multipart upload
         if (files is not null && files.Count > 0)
@@ -627,6 +654,13 @@ public sealed class DiscordBot : IDiscordBot
     }
 
     /// <summary>
+    /// Creates a new role in a guild.
+    /// Example: await bot.CreateRoleAsync(guildId, "Moderator", permissions: 8);
+    /// </summary>
+    public Task<DiscordRole?> CreateRoleAsync(ulong guildId, string? name = null, ulong? permissions = null, int? color = null, bool? hoist = null, bool? mentionable = null, CancellationToken ct = default)
+        => CreateRoleAsync(guildId.ToString(CultureInfo.InvariantCulture), name, permissions, color, hoist, mentionable, ct);
+
+    /// <summary>
     /// Modifies a role in a guild.
     /// </summary>
     public Task<DiscordRole?> ModifyRoleAsync(string guildId, string roleId, string? name = null, ulong? permissions = null, int? color = null, bool? hoist = null, bool? mentionable = null, CancellationToken ct = default)
@@ -643,10 +677,24 @@ public sealed class DiscordBot : IDiscordBot
     }
 
     /// <summary>
+    /// Modifies a role in a guild.
+    /// Example: await bot.ModifyRoleAsync(guildId, roleId, name: "Admin");
+    /// </summary>
+    public Task<DiscordRole?> ModifyRoleAsync(ulong guildId, ulong roleId, string? name = null, ulong? permissions = null, int? color = null, bool? hoist = null, bool? mentionable = null, CancellationToken ct = default)
+        => ModifyRoleAsync(guildId.ToString(CultureInfo.InvariantCulture), roleId.ToString(CultureInfo.InvariantCulture), name, permissions, color, hoist, mentionable, ct);
+
+    /// <summary>
     /// Deletes a role from a guild.
     /// </summary>
     public Task DeleteRoleAsync(string guildId, string roleId, CancellationToken ct = default)
         => _rest.DeleteGuildRoleAsync(guildId, roleId, ct);
+
+    /// <summary>
+    /// Deletes a role from a guild.
+    /// Example: await bot.DeleteRoleAsync(guildId, roleId);
+    /// </summary>
+    public Task DeleteRoleAsync(ulong guildId, ulong roleId, CancellationToken ct = default)
+        => _rest.DeleteGuildRoleAsync(guildId.ToString(CultureInfo.InvariantCulture), roleId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
     /// Creates a new channel in a guild.
@@ -668,6 +716,13 @@ public sealed class DiscordBot : IDiscordBot
         };
         return _rest.PostGuildChannelAsync<DiscordChannel>(guildId, payload, ct);
     }
+
+    /// <summary>
+    /// Creates a new channel in a guild.
+    /// Example: await bot.CreateChannelAsync(guildId, "general", ChannelType.GuildText);
+    /// </summary>
+    public Task<DiscordChannel?> CreateChannelAsync(ulong guildId, string name, Entities.ChannelType type, ulong? parentId = null, object[]? permissionOverwrites = null, CancellationToken ct = default)
+        => CreateChannelAsync(guildId.ToString(CultureInfo.InvariantCulture), name, type, parentId?.ToString(CultureInfo.InvariantCulture), permissionOverwrites, ct);
 
     /// <summary>
     /// Creates a new text channel in a guild.
@@ -708,10 +763,24 @@ public sealed class DiscordBot : IDiscordBot
     }
 
     /// <summary>
+    /// Modifies a channel.
+    /// Example: await bot.ModifyChannelAsync(channelId, name: "new-name");
+    /// </summary>
+    public Task<DiscordChannel?> ModifyChannelAsync(ulong channelId, string? name = null, int? type = null, ulong? parentId = null, int? position = null, string? topic = null, bool? nsfw = null, int? bitrate = null, int? userLimit = null, int? rateLimitPerUser = null, CancellationToken ct = default)
+        => ModifyChannelAsync(channelId.ToString(CultureInfo.InvariantCulture), name, type, parentId?.ToString(CultureInfo.InvariantCulture), position, topic, nsfw, bitrate, userLimit, rateLimitPerUser, ct);
+
+    /// <summary>
     /// Deletes a channel.
     /// </summary>
     public Task DeleteChannelAsync(string channelId, CancellationToken ct = default)
         => _rest.DeleteChannelAsync(channelId, ct);
+
+    /// <summary>
+    /// Deletes a channel.
+    /// Example: await bot.DeleteChannelAsync(channelId);
+    /// </summary>
+    public Task DeleteChannelAsync(ulong channelId, CancellationToken ct = default)
+        => _rest.DeleteChannelAsync(channelId.ToString(CultureInfo.InvariantCulture), ct);
 
     // ---- Message management ----
 
@@ -740,6 +809,13 @@ public sealed class DiscordBot : IDiscordBot
     }
 
     /// <summary>
+    /// Gets recent messages from a channel (up to 100).
+    /// Example: foreach (var msg in await bot.GetMessagesAsync(channelId, limit: 50)) { }
+    /// </summary>
+    public Task<IEnumerable<DiscordMessage>> GetMessagesAsync(ulong channelId, int limit = 50, ulong? before = null, ulong? after = null, CancellationToken ct = default)
+        => GetMessagesAsync(channelId.ToString(CultureInfo.InvariantCulture), limit, before?.ToString(CultureInfo.InvariantCulture), after?.ToString(CultureInfo.InvariantCulture), ct);
+
+    /// <summary>
     /// Edits a message. Only works on messages sent by the bot.
     /// Example: await bot.EditMessageAsync(channelId, messageId, "Updated content");
     /// </summary>
@@ -752,6 +828,13 @@ public sealed class DiscordBot : IDiscordBot
         };
         return _rest.PatchMessageAsync<DiscordMessage>(channelId, messageId, payload, ct);
     }
+
+    /// <summary>
+    /// Edits a message. Only works on messages sent by the bot.
+    /// Example: await bot.EditMessageAsync(channelId, messageId, "Updated content");
+    /// </summary>
+    public Task<DiscordMessage?> EditMessageAsync(ulong channelId, ulong messageId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
+        => EditMessageAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), content, embed, ct);
 
     /// <summary>
     /// Deletes a message. Requires appropriate permissions.
@@ -788,6 +871,13 @@ public sealed class DiscordBot : IDiscordBot
     }
 
     /// <summary>
+    /// Adds a reaction to a message.
+    /// Example: await bot.AddReactionAsync(channelId, messageId, "👍");
+    /// </summary>
+    public Task AddReactionAsync(ulong channelId, ulong messageId, string emoji, CancellationToken ct = default)
+        => AddReactionAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), emoji, ct);
+
+    /// <summary>
     /// Adds a reaction to a message using an Emoji object.
     /// Example: await bot.AddReactionAsync(channelId, messageId, Emoji.Unicode("👍"));
     /// Example: await bot.AddReactionAsync(channelId, messageId, Emoji.Custom("custom", "123456789"));
@@ -797,6 +887,13 @@ public sealed class DiscordBot : IDiscordBot
         string encoded = System.Web.HttpUtility.UrlEncode(emoji.GetReactionFormat());
         return _rest.AddReactionAsync(channelId, messageId, encoded, ct);
     }
+
+    /// <summary>
+    /// Adds a reaction to a message using an Emoji object.
+    /// Example: await bot.AddReactionAsync(channelId, messageId, Emoji.Unicode("👍"));
+    /// </summary>
+    public Task AddReactionAsync(ulong channelId, ulong messageId, DiscordEmoji emoji, CancellationToken ct = default)
+        => AddReactionAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), emoji, ct);
 
     /// <summary>
     /// Removes the bot's own reaction from a message.
@@ -809,6 +906,13 @@ public sealed class DiscordBot : IDiscordBot
     }
 
     /// <summary>
+    /// Removes the bot's own reaction from a message.
+    /// Example: await bot.RemoveOwnReactionAsync(channelId, messageId, "👍");
+    /// </summary>
+    public Task RemoveOwnReactionAsync(ulong channelId, ulong messageId, string emoji, CancellationToken ct = default)
+        => RemoveOwnReactionAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), emoji, ct);
+
+    /// <summary>
     /// Removes a user's reaction from a message. Requires MANAGE_MESSAGES permission.
     /// Example: await bot.RemoveUserReactionAsync(channelId, messageId, "👍", userId);
     /// </summary>
@@ -817,6 +921,13 @@ public sealed class DiscordBot : IDiscordBot
         string encoded = System.Web.HttpUtility.UrlEncode(emoji);
         return _rest.RemoveUserReactionAsync(channelId, messageId, encoded, userId, ct);
     }
+
+    /// <summary>
+    /// Removes a user's reaction from a message. Requires MANAGE_MESSAGES permission.
+    /// Example: await bot.RemoveUserReactionAsync(channelId, messageId, "👍", userId);
+    /// </summary>
+    public Task RemoveUserReactionAsync(ulong channelId, ulong messageId, string emoji, ulong userId, CancellationToken ct = default)
+        => RemoveUserReactionAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), emoji, userId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
     /// Gets users who reacted with a specific emoji (up to 100).
@@ -831,11 +942,25 @@ public sealed class DiscordBot : IDiscordBot
     }
 
     /// <summary>
+    /// Gets users who reacted with a specific emoji (up to 100).
+    /// Example: foreach (var user in await bot.GetReactionsAsync(channelId, messageId, "👍")) { }
+    /// </summary>
+    public Task<IEnumerable<DiscordUser>> GetReactionsAsync(ulong channelId, ulong messageId, string emoji, int limit = 25, CancellationToken ct = default)
+        => GetReactionsAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), emoji, limit, ct);
+
+    /// <summary>
     /// Removes all reactions from a message. Requires MANAGE_MESSAGES permission.
     /// Example: await bot.RemoveAllReactionsAsync(channelId, messageId);
     /// </summary>
     public Task RemoveAllReactionsAsync(string channelId, string messageId, CancellationToken ct = default)
         => _rest.RemoveAllReactionsAsync(channelId, messageId, ct);
+
+    /// <summary>
+    /// Removes all reactions from a message. Requires MANAGE_MESSAGES permission.
+    /// Example: await bot.RemoveAllReactionsAsync(channelId, messageId);
+    /// </summary>
+    public Task RemoveAllReactionsAsync(ulong channelId, ulong messageId, CancellationToken ct = default)
+        => RemoveAllReactionsAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
     /// Removes all reactions for a specific emoji from a message. Requires MANAGE_MESSAGES permission.
@@ -846,6 +971,13 @@ public sealed class DiscordBot : IDiscordBot
         string encoded = System.Web.HttpUtility.UrlEncode(emoji);
         return _rest.RemoveAllReactionsForEmojiAsync(channelId, messageId, encoded, ct);
     }
+
+    /// <summary>
+    /// Removes all reactions for a specific emoji from a message. Requires MANAGE_MESSAGES permission.
+    /// Example: await bot.RemoveAllReactionsForEmojiAsync(channelId, messageId, "👍");
+    /// </summary>
+    public Task RemoveAllReactionsForEmojiAsync(ulong channelId, ulong messageId, string emoji, CancellationToken ct = default)
+        => RemoveAllReactionsForEmojiAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), emoji, ct);
 
     // ---- Pin management ----
 
@@ -1053,11 +1185,25 @@ public sealed class DiscordBot : IDiscordBot
         => _rest.AddMemberRoleAsync(guildId, userId, roleId, ct);
 
     /// <summary>
+    /// Adds a role to a guild member. Requires MANAGE_ROLES permission.
+    /// Example: await bot.AddRoleToMemberAsync(guildId, userId, roleId);
+    /// </summary>
+    public Task AddRoleToMemberAsync(ulong guildId, ulong userId, ulong roleId, CancellationToken ct = default)
+        => _rest.AddMemberRoleAsync(guildId.ToString(CultureInfo.InvariantCulture), userId.ToString(CultureInfo.InvariantCulture), roleId.ToString(CultureInfo.InvariantCulture), ct);
+
+    /// <summary>
     /// Removes a role from a guild member. Requires MANAGE_ROLES permission.
     /// Example: await bot.RemoveRoleFromMemberAsync(guildId, userId, roleId);
     /// </summary>
     public Task RemoveRoleFromMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default)
         => _rest.RemoveMemberRoleAsync(guildId, userId, roleId, ct);
+
+    /// <summary>
+    /// Removes a role from a guild member. Requires MANAGE_ROLES permission.
+    /// Example: await bot.RemoveRoleFromMemberAsync(guildId, userId, roleId);
+    /// </summary>
+    public Task RemoveRoleFromMemberAsync(ulong guildId, ulong userId, ulong roleId, CancellationToken ct = default)
+        => _rest.RemoveMemberRoleAsync(guildId.ToString(CultureInfo.InvariantCulture), userId.ToString(CultureInfo.InvariantCulture), roleId.ToString(CultureInfo.InvariantCulture), ct);
 
     // ---- Audit log ----
 
@@ -1093,6 +1239,13 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task TriggerTypingAsync(string channelId, CancellationToken ct = default)
         => _rest.TriggerTypingIndicatorAsync(channelId, ct);
+
+    /// <summary>
+    /// Triggers the typing indicator in a channel. Lasts 10 seconds or until a message is sent.
+    /// Example: await bot.TriggerTypingAsync(channelId);
+    /// </summary>
+    public Task TriggerTypingAsync(ulong channelId, CancellationToken ct = default)
+        => _rest.TriggerTypingIndicatorAsync(channelId.ToString(CultureInfo.InvariantCulture), ct);
 
     // ---- Thread operations ----
 
@@ -1303,6 +1456,435 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
         => _rest.GetApplicationAsync(ct);
 
     /// <summary>
+    /// Modifies a guild's settings.
+    /// Example: await bot.ModifyGuildAsync(guildId, name: "New Name");
+    /// </summary>
+    public Task<DiscordGuild?> ModifyGuildAsync(string guildId, string? name = null, int? verificationLevel = null, int? defaultMessageNotifications = null, int? explicitContentFilter = null, string? afkChannelId = null, int? afkTimeout = null, string? ownerId = null, string? description = null, string? preferredLocale = null, CancellationToken ct = default)
+    {
+        var payload = new
+        {
+            name,
+            verification_level = verificationLevel,
+            default_message_notifications = defaultMessageNotifications,
+            explicit_content_filter = explicitContentFilter,
+            afk_channel_id = afkChannelId,
+            afk_timeout = afkTimeout,
+            owner_id = ownerId,
+            description,
+            preferred_locale = preferredLocale
+        };
+        return _rest.PatchGuildAsync<DiscordGuild>(guildId, payload, ct);
+    }
+
+    /// <summary>
+    /// Modifies a guild's settings.
+    /// Example: await bot.ModifyGuildAsync(guildId, name: "New Name");
+    /// </summary>
+    public Task<DiscordGuild?> ModifyGuildAsync(ulong guildId, string? name = null, int? verificationLevel = null, int? defaultMessageNotifications = null, int? explicitContentFilter = null, ulong? afkChannelId = null, int? afkTimeout = null, ulong? ownerId = null, string? description = null, string? preferredLocale = null, CancellationToken ct = default)
+        => ModifyGuildAsync(guildId.ToString(CultureInfo.InvariantCulture), name, verificationLevel, defaultMessageNotifications, explicitContentFilter, afkChannelId?.ToString(CultureInfo.InvariantCulture), afkTimeout, ownerId?.ToString(CultureInfo.InvariantCulture), description, preferredLocale, ct);
+
+    /// <summary>
+    /// Prunes inactive members from a guild.
+    /// Example: await bot.PruneMembersAsync(guildId, days: 7);
+    /// </summary>
+    /// <returns>Number of members pruned, or null on failure</returns>
+    public async Task<int?> PruneMembersAsync(string guildId, int days = 7, string[]? includeRoles = null, CancellationToken ct = default)
+    {
+        if (days < 1 || days > 30) throw new ArgumentOutOfRangeException(nameof(days), "Days must be between 1 and 30");
+        var payload = new { days, include_roles = includeRoles };
+        return await _rest.PostGuildPruneAsync<int?>(guildId, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gets the number of members that would be pruned.
+    /// Example: int count = await bot.GetPruneCountAsync(guildId, days: 30);
+    /// </summary>
+    public Task<int?> GetPruneCountAsync(string guildId, int days = 7, string[]? includeRoles = null, CancellationToken ct = default)
+    {
+        if (days < 1 || days > 30) throw new ArgumentOutOfRangeException(nameof(days), "Days must be between 1 and 30");
+        return _rest.GetGuildPruneCountAsync<int?>(guildId, days, includeRoles, ct);
+    }
+
+    /// <summary>
+    /// Makes the bot leave a guild.
+    /// Example: await bot.LeaveGuildAsync(guildId);
+    /// </summary>
+    public Task LeaveGuildAsync(string guildId, CancellationToken ct = default)
+        => _rest.DeleteGuildAsync(guildId, ct);
+
+    /// <summary>
+    /// Makes the bot leave a guild.
+    /// Example: await bot.LeaveGuildAsync(guildId);
+    /// </summary>
+    public Task LeaveGuildAsync(ulong guildId, CancellationToken ct = default)
+        => _rest.DeleteGuildAsync(guildId.ToString(CultureInfo.InvariantCulture), ct);
+
+    // ---- Webhook management ----
+
+    /// <summary>
+    /// Creates a webhook in a channel.
+    /// Example: await bot.CreateWebhookAsync(channelId, "My Webhook", avatarUrl: "...");
+    /// </summary>
+    public async Task<DiscordChannel?> CreateWebhookAsync(string channelId, string name, string? avatarUrl = null, CancellationToken ct = default)
+    {
+        var payload = new { name, avatar = avatarUrl };
+        return await _rest.PostChannelWebhookAsync<DiscordChannel>(channelId, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gets all webhooks for a channel.
+    /// Example: foreach (var wh in await bot.GetChannelWebhooksAsync(channelId)) { }
+    /// </summary>
+    public async Task<IEnumerable<object>> GetChannelWebhooksAsync(string channelId, CancellationToken ct = default)
+    {
+        var result = await _rest.GetChannelWebhooksAsync<object[]>(channelId, ct).ConfigureAwait(false);
+        return result ?? [];
+    }
+
+    /// <summary>
+    /// Gets all webhooks for a guild.
+    /// </summary>
+    public async Task<IEnumerable<object>> GetGuildWebhooksAsync(string guildId, CancellationToken ct = default)
+    {
+        var result = await _rest.GetGuildWebhooksAsync<object[]>(guildId, ct).ConfigureAwait(false);
+        return result ?? [];
+    }
+
+    /// <summary>
+    /// Modifies a webhook.
+    /// </summary>
+    public Task ModifyWebhookAsync(string webhookId, string? name = null, string? avatarUrl = null, CancellationToken ct = default)
+    {
+        var payload = new { name, avatar = avatarUrl };
+        return _rest.PatchWebhookAsync<object>(webhookId, payload, ct);
+    }
+
+    /// <summary>
+    /// Deletes a webhook.
+    /// </summary>
+    public Task DeleteWebhookAsync(string webhookId, CancellationToken ct = default)
+        => _rest.DeleteWebhookAsync(webhookId, ct);
+
+    // ---- Emoji management ----
+
+    /// <summary>
+    /// Creates a new emoji in a guild.
+    /// Example: await bot.CreateEmojiAsync(guildId, "my_emoji", imageBase64);
+    /// </summary>
+    public async Task<DiscordEmoji?> CreateEmojiAsync(string guildId, string name, string imageBase64, string[]? roles = null, CancellationToken ct = default)
+    {
+        var payload = new { name, image = imageBase64, roles };
+        return await _rest.PostGuildEmojiAsync<DiscordEmoji>(guildId, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Modifies a guild emoji.
+    /// </summary>
+    public Task<DiscordEmoji?> ModifyEmojiAsync(string guildId, string emojiId, string? name = null, string[]? roles = null, CancellationToken ct = default)
+    {
+        var payload = new { name, roles };
+        return _rest.PatchGuildEmojiAsync<DiscordEmoji>(guildId, emojiId, payload, ct);
+    }
+
+    /// <summary>
+    /// Deletes a guild emoji.
+    /// </summary>
+    public Task DeleteEmojiAsync(string guildId, string emojiId, CancellationToken ct = default)
+        => _rest.DeleteGuildEmojiAsync(guildId, emojiId, ct);
+
+    // ---- Sticker management ----
+
+    /// <summary>
+    /// Gets all stickers for a guild.
+    /// </summary>
+    public async Task<IEnumerable<object>> GetGuildStickersAsync(string guildId, CancellationToken ct = default)
+    {
+        var result = await _rest.GetGuildStickersAsync<object[]>(guildId, ct).ConfigureAwait(false);
+        return result ?? [];
+    }
+
+    /// <summary>
+    /// Creates a sticker in a guild.
+    /// </summary>
+    public async Task<object?> CreateStickerAsync(string guildId, string name, string description, string tags, string fileData, CancellationToken ct = default)
+    {
+        var payload = new { name, description, tags, file = fileData };
+        return await _rest.PostGuildStickerAsync<object>(guildId, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Modifies a guild sticker.
+    /// </summary>
+    public async Task<object?> ModifyStickerAsync(string guildId, string stickerId, string? name = null, string? description = null, string? tags = null, CancellationToken ct = default)
+    {
+        var payload = new { name, description, tags };
+        return await _rest.PatchGuildStickerAsync<object>(guildId, stickerId, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deletes a guild sticker.
+    /// </summary>
+    public Task DeleteStickerAsync(string guildId, string stickerId, CancellationToken ct = default)
+        => _rest.DeleteGuildStickerAsync(guildId, stickerId, ct);
+
+    // ---- Auto moderation rules ----
+
+    /// <summary>
+    /// Gets all auto moderation rules for a guild.
+    /// </summary>
+    public async Task<IEnumerable<object>> GetAutoModerationRulesAsync(string guildId, CancellationToken ct = default)
+    {
+        var result = await _rest.GetGuildAutoModerationRulesAsync<object[]>(guildId, ct).ConfigureAwait(false);
+        return result ?? [];
+    }
+
+    /// <summary>
+    /// Creates an auto moderation rule.
+    /// </summary>
+    public async Task<object?> CreateAutoModerationRuleAsync(string guildId, object rulePayload, CancellationToken ct = default)
+        => await _rest.PostGuildAutoModerationRuleAsync<object>(guildId, rulePayload, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Modifies an auto moderation rule.
+    /// </summary>
+    public async Task<object?> ModifyAutoModerationRuleAsync(string guildId, string ruleId, object rulePayload, CancellationToken ct = default)
+        => await _rest.PatchGuildAutoModerationRuleAsync<object>(guildId, ruleId, rulePayload, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Deletes an auto moderation rule.
+    /// </summary>
+    public Task DeleteAutoModerationRuleAsync(string guildId, string ruleId, CancellationToken ct = default)
+        => _rest.DeleteGuildAutoModerationRuleAsync(guildId, ruleId, ct);
+
+    // ---- Stage instance management ----
+
+    /// <summary>
+    /// Creates a stage instance.
+    /// </summary>
+    public async Task<object?> CreateStageInstanceAsync(string channelId, string topic, int? privacyLevel = null, CancellationToken ct = default)
+    {
+        var payload = new { channel_id = channelId, topic, privacy_level = privacyLevel ?? 2 };
+        return await _rest.PostStageInstanceAsync<object>(payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Modifies a stage instance.
+    /// </summary>
+    public async Task<object?> ModifyStageInstanceAsync(string channelId, string? topic = null, int? privacyLevel = null, CancellationToken ct = default)
+    {
+        var payload = new { topic, privacy_level = privacyLevel };
+        return await _rest.PatchStageInstanceAsync<object>(channelId, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deletes a stage instance.
+    /// </summary>
+    public Task DeleteStageInstanceAsync(string channelId, CancellationToken ct = default)
+        => _rest.DeleteStageInstanceAsync(channelId, ct);
+
+    // ---- Scheduled event management ----
+
+    /// <summary>
+    /// Creates a guild scheduled event.
+    /// </summary>
+    public async Task<object?> CreateScheduledEventAsync(string guildId, object eventPayload, CancellationToken ct = default)
+        => await _rest.PostGuildScheduledEventAsync<object>(guildId, eventPayload, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Modifies a guild scheduled event.
+    /// </summary>
+    public async Task<object?> ModifyScheduledEventAsync(string guildId, string eventId, object eventPayload, CancellationToken ct = default)
+        => await _rest.PatchGuildScheduledEventAsync<object>(guildId, eventId, eventPayload, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Deletes a guild scheduled event.
+    /// </summary>
+    public Task DeleteScheduledEventAsync(string guildId, string eventId, CancellationToken ct = default)
+        => _rest.DeleteGuildScheduledEventAsync(guildId, eventId, ct);
+
+    // ---- Invite management ----
+
+    /// <summary>
+    /// Creates an invite for a channel.
+    /// Example: await bot.CreateInviteAsync(channelId, maxAge: 86400, maxUses: 10);
+    /// </summary>
+    public async Task<object?> CreateInviteAsync(string channelId, int? maxAge = null, int? maxUses = null, bool? temporary = null, bool? unique = null, CancellationToken ct = default)
+    {
+        var payload = new { max_age = maxAge, max_uses = maxUses, temporary, unique };
+        return await _rest.PostChannelInviteAsync<object>(channelId, payload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gets all invites for a channel.
+    /// </summary>
+    public async Task<IEnumerable<object>> GetChannelInvitesAsync(string channelId, CancellationToken ct = default)
+    {
+        var result = await _rest.GetChannelInvitesAsync<object[]>(channelId, ct).ConfigureAwait(false);
+        return result ?? [];
+    }
+
+    /// <summary>
+    /// Gets all invites for a guild.
+    /// </summary>
+    public async Task<IEnumerable<object>> GetGuildInvitesAsync(string guildId, CancellationToken ct = default)
+    {
+        var result = await _rest.GetGuildInvitesAsync<object[]>(guildId, ct).ConfigureAwait(false);
+        return result ?? [];
+    }
+
+    // ---- Current user management ----
+
+    /// <summary>
+    /// Modifies the bot's own username and/or avatar.
+    /// Example: await bot.ModifyCurrentUserAsync(username: "NewBotName");
+    /// </summary>
+    public Task<DiscordUser?> ModifyCurrentUserAsync(string? username = null, string? avatarBase64 = null, CancellationToken ct = default)
+    {
+        var payload = new { username, avatar = avatarBase64 };
+        return _rest.PatchCurrentUserAsync<DiscordUser>(payload, ct);
+    }
+
+    /// <summary>
+    /// Sets the bot's online status (online, idle, dnd, invisible).
+    /// Example: await bot.SetStatusAsync(PresenceStatus.DoNotDisturb);
+    /// </summary>
+    public async Task SetStatusAsync(PresenceStatus status)
+    {
+        string statusStr = GetStatusString(status);
+        if (_gateway != null) await _gateway.UpdatePresenceAsync(statusStr, null).ConfigureAwait(false);
+        if (_shardManager != null)
+            foreach (int sid in _shardManager.GetShardIds())
+            {
+                Shard? s = _shardManager.GetShard(sid);
+                if (s != null) await s.Gateway.UpdatePresenceAsync(statusStr, null).ConfigureAwait(false);
+            }
+        if (_worker != null)
+            foreach (int wid in _worker.ShardManager.GetShardIds())
+            {
+                Shard? s = _worker.ShardManager.GetShard(wid);
+                if (s != null) await s.Gateway.UpdatePresenceAsync(statusStr, null).ConfigureAwait(false);
+            }
+    }
+
+    /// <summary>
+    /// Sets the bot's online status using a raw string.
+    /// Example: await bot.SetStatusAsync("dnd");
+    /// </summary>
+    public async Task SetStatusAsync(string status)
+    {
+        if (_gateway != null) await _gateway.UpdatePresenceAsync(status, null).ConfigureAwait(false);
+        if (_shardManager != null)
+            foreach (int sid in _shardManager.GetShardIds())
+            {
+                Shard? s = _shardManager.GetShard(sid);
+                if (s != null) await s.Gateway.UpdatePresenceAsync(status, null).ConfigureAwait(false);
+            }
+        if (_worker != null)
+            foreach (int wid in _worker.ShardManager.GetShardIds())
+            {
+                Shard? s = _worker.ShardManager.GetShard(wid);
+                if (s != null) await s.Gateway.UpdatePresenceAsync(status, null).ConfigureAwait(false);
+            }
+    }
+
+    /// <summary>
+    /// Sets the bot's presence to "Playing {name}".
+    /// Example: await bot.SetGameAsync("Minecraft");
+    /// </summary>
+    public async Task SetGameAsync(string name)
+    {
+        BotActivity[] activities = [BotActivity.Game(name)];
+        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sets the bot's presence to "Watching {name}".
+    /// Example: await bot.SetWatchingAsync("YouTube");
+    /// </summary>
+    public async Task SetWatchingAsync(string name)
+    {
+        BotActivity[] activities = [BotActivity.Watching(name)];
+        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sets the bot's presence to "Listening to {name}".
+    /// Example: await bot.SetListeningAsync("Spotify");
+    /// </summary>
+    public async Task SetListeningAsync(string name)
+    {
+        BotActivity[] activities = [BotActivity.Listening(name)];
+        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sets the bot's presence to "Streaming {name}" with a Twitch/YouTube URL.
+    /// Example: await bot.SetStreamingAsync("Live coding!", "https://twitch.tv/myChannel");
+    /// </summary>
+    public async Task SetStreamingAsync(string name, string url)
+    {
+        BotActivity[] activities = [BotActivity.Streaming(name, url)];
+        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sets the bot's presence to "Competing in {name}".
+    /// Example: await bot.SetCompetingAsync("a tournament");
+    /// </summary>
+    public async Task SetCompetingAsync(string name)
+    {
+        BotActivity[] activities = [BotActivity.Competing(name)];
+        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Full presence control. Sets status and activities across all gateway connections.
+    /// Example: await bot.SetPresenceAsync("dnd", [BotActivity.Game("hidden")]);
+    /// </summary>
+    /// <param name="status">Status string: "online", "dnd", "idle", or "invisible"</param>
+    /// <param name="activities">Optional array of BotActivity objects</param>
+    /// <param name="since">Unix timestamp in milliseconds of when the client went idle, or null</param>
+    /// <param name="afk">Whether the client is AFK</param>
+    public async Task SetPresenceAsync(string status, BotActivity[]? activities = null, long? since = null, bool afk = false)
+    {
+        await BroadcastPresenceAsync(status, activities, since, afk).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Full presence control using enum status.
+    /// Example: await bot.SetPresenceAsync(PresenceStatus.DoNotDisturb, [BotActivity.Game("invisible")]);
+    /// </summary>
+    public Task SetPresenceAsync(PresenceStatus status, BotActivity[]? activities = null, long? since = null, bool afk = false)
+        => SetPresenceAsync(GetStatusString(status), activities, since, afk);
+
+    private async Task BroadcastPresenceAsync(string status, BotActivity[]? activities, long? since = null, bool afk = false)
+    {
+        if (_gateway != null)
+            await _gateway.UpdatePresenceAsync(status, activities, since, afk).ConfigureAwait(false);
+        if (_shardManager != null)
+            foreach (int sid in _shardManager.GetShardIds())
+            {
+                Shard? s = _shardManager.GetShard(sid);
+                if (s != null) await s.Gateway.UpdatePresenceAsync(status, activities, since, afk).ConfigureAwait(false);
+            }
+        if (_worker != null)
+            foreach (int wid in _worker.ShardManager.GetShardIds())
+            {
+                Shard? s = _worker.ShardManager.GetShard(wid);
+                if (s != null) await s.Gateway.UpdatePresenceAsync(status, activities, since, afk).ConfigureAwait(false);
+            }
+    }
+
+    private static string GetStatusString(PresenceStatus status) => status switch
+    {
+        PresenceStatus.Online => "online",
+        PresenceStatus.Idle => "idle",
+        PresenceStatus.DoNotDisturb => "dnd",
+        PresenceStatus.Invisible => "invisible",
+        _ => "online"
+    };
+
+    /// <summary>
     /// Updates the bot's nickname in a guild.
     /// Example: await bot.SetNicknameAsync(guildId, "CoolBot");
     /// </summary>
@@ -1357,6 +1939,13 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     }
 
     /// <summary>
+    /// Sends a direct message to a user by creating a DM channel and sending a message.
+    /// Example: await bot.SendDMAsync(userId, "Hello!");
+    /// </summary>
+    public Task<DiscordMessage?> SendDMAsync(ulong userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
+        => SendDMAsync(userId.ToString(CultureInfo.InvariantCulture), content, embed, ct);
+
+    /// <summary>
     /// Pins a message in a channel.
     /// Example: await bot.PinMessageAsync(channelId, messageId);
     /// </summary>
@@ -1394,6 +1983,9 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
             case { Type: InteractionType.ApplicationCommand, Data: not null }:
                 _ = _slashCommands.HandleAsync(enriched, _rest, _cts.Token);
                 break;
+            case { Type: InteractionType.ApplicationCommandAutocomplete, Data: not null }:
+                _ = _autocomplete.HandleAsync(enriched, _rest, _cts.Token);
+                break;
             case { Type: InteractionType.MessageComponent, Component: not null } or { Type: InteractionType.ModalSubmit, Modal: not null }:
                 _ = _components.HandleAsync(enriched, _rest, _cts.Token);
                 break;
@@ -1430,11 +2022,12 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
         // Auto-load complete guild data if enabled
         if (_autoLoadFullGuildData)
         {
+            GatewayClient? sendingGateway = sender as GatewayClient ?? _gateway;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await LoadCompleteGuildDataAsync(evt.Guild.Id, evt.Channels, evt.Members);
+                    await LoadCompleteGuildDataAsync(evt.Guild.Id, evt.Channels, evt.Members, sendingGateway);
                 }
                 catch (Exception ex)
                 {
@@ -1711,16 +2304,16 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
                 ulong authorId = rawMsg.Author.Id;
 
                 // Resolve entities from cache using DiscordContext
-                DiscordChannel? channel = Context.DiscordContext.GetChannel(channelId);
+                DiscordChannel? channel = DiscordContext.GetChannel(channelId);
                 DiscordGuild? guild = rawMsg.GuildId != null && ulong.TryParse(rawMsg.GuildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong guildId)
-                    ? Context.DiscordContext.GetGuild(guildId)
+                    ? DiscordContext.GetGuild(guildId)
                     : null;
 
                 // Try to get author from members cache first (has more info)
                 DiscordUser? author = null;
                 if (guild != null)
                 {
-                    var member = Context.DiscordContext.GetMember(authorId, guild.Id);
+                    var member = DiscordContext.GetMember(authorId, guild.Id);
                     author = member?.User;
                 }
 
@@ -2122,6 +2715,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
         ArgumentNullException.ThrowIfNull(manifest);
         _generatedManifests.Add(manifest);
         _slashCommands.RegisterGeneratedManifest(manifest);
+        _autocomplete.RegisterGenerated(manifest);
         foreach (ComponentHandler ch in manifest.Components)
             _components.RegisterGenerated(ch);
     }
@@ -2173,7 +2767,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// Loads complete guild data after GUILD_CREATE, ensuring all channels and members are cached.
     /// Fires GuildReady event when complete.
     /// </summary>
-    private async Task LoadCompleteGuildDataAsync(ulong guildId, DiscordChannel[]? guildCreateChannels, DiscordMember[]? guildCreateMembers)
+    private async Task LoadCompleteGuildDataAsync(ulong guildId, DiscordChannel[]? guildCreateChannels, DiscordMember[]? guildCreateMembers, GatewayClient? gateway)
     {
         await Task.Delay(100); // Small delay to let connection stabilize
 
@@ -2223,7 +2817,13 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
                 {
                     // Register that we're waiting for member chunks
                     _pendingMemberChunks.TryAdd(guildId, 1);
-                    await _gateway!.RequestGuildMembersAsync(guildId.ToString(CultureInfo.InvariantCulture));
+                    if (gateway is null)
+                    {
+                        _logger.Log(LogLevel.Warning, $"Cannot request guild members for guild {guildId}: no gateway available");
+                        _pendingMemberChunks.TryRemove(guildId, out _);
+                        return;
+                    }
+                    await gateway.RequestGuildMembersAsync(guildId.ToString(CultureInfo.InvariantCulture));
                     needsMembers = true;
 
                     // Set up a timeout to prevent waiting forever

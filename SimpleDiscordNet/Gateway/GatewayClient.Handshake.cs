@@ -73,4 +73,29 @@ internal sealed partial class GatewayClient
         }
         await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Update the bot's presence/status via gateway.
+    /// </summary>
+    public async Task UpdatePresenceAsync(string status, BotActivity[]? activities, long? since = null, bool afk = false)
+    {
+        if (_ws.State != WebSocketState.Open) return;
+
+        UpdatePresence presence = new()
+        {
+            d = new UpdatePresencePayload
+            {
+                since = since,
+                activities = activities,
+                status = status,
+                afk = afk
+            }
+        };
+        System.Buffers.ArrayBufferWriter<byte> buffer = new();
+        using (Utf8JsonWriter writer = new(buffer))
+        {
+            JsonSerializer.Serialize(writer, presence, json);
+        }
+        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+    }
 }
