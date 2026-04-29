@@ -11,6 +11,7 @@ public interface IGeneratedManifest
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, CommandHandler>> Grouped { get; }
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyDictionary<string, CommandHandler>>> SubGrouped { get; }
     IReadOnlyList<ComponentHandler> Components { get; }
+    IReadOnlyDictionary<string, AutocompleteHandler> AutocompleteHandlers { get; }
     ApplicationCommandDefinition[] Definitions { get; }
     IReadOnlyDictionary<string, string> HelpIndex { get; }
 }
@@ -32,6 +33,7 @@ public sealed class RuntimeManifest : IGeneratedManifest
     public required IReadOnlyDictionary<string, IReadOnlyDictionary<string, CommandHandler>> Grouped { get; init; }
     public required IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyDictionary<string, CommandHandler>>> SubGrouped { get; init; }
     public required IReadOnlyList<ComponentHandler> Components { get; init; }
+    public required IReadOnlyDictionary<string, AutocompleteHandler> AutocompleteHandlers { get; init; }
     public required ApplicationCommandDefinition[] Definitions { get; init; }
     public required IReadOnlyDictionary<string, string> HelpIndex { get; init; }
 }

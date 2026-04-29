@@ -119,7 +119,22 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
-### v1.8.0 - Advanced Moderation & Audit Log Features (2025-01-15)
+### v1.9.0 - Context Menus, Autocomplete, Presence & Full API Coverage
+- **Presence/Status API** — `SetGameAsync("Minecraft")`, `SetWatchingAsync("YouTube")`, `SetListeningAsync("Spotify")`, `SetStreamingAsync("Live!", url)`, `SetCompetingAsync("tournament")`, `SetStatusAsync(PresenceStatus.DoNotDisturb)`
+- **Context Menu Commands** — `[UserContextMenu("Info")]` and `[MessageContextMenu("Report")]` attributes
+- **Autocomplete Handlers** — `[Autocomplete("command_name", "option_name")]` with full interaction routing
+- **Global Command Sync** — `bot.SyncGlobalCommandsAsync()`
+- **Guild Management** — `ModifyGuildAsync`, `LeaveGuildAsync`, `PruneMembersAsync`, `GetPruneCountAsync`
+- **Webhook Management** — `CreateWebhookAsync`, `GetChannelWebhooksAsync`, `ModifyWebhookAsync`, `DeleteWebhookAsync`
+- **Emoji & Sticker Management** — `CreateEmojiAsync`, `ModifyEmojiAsync`, `DeleteEmojiAsync`, `GetGuildStickersAsync`, sticker CRUD
+- **Invite Management** — `CreateInviteAsync`, `GetChannelInvitesAsync`, `GetGuildInvitesAsync`
+- **Message Replies & Forum Posts** — `builder.WithReply(messageId)`, `builder.WithForumPost(title, tags)`, `channel.ReplyAsync()`
+- **Bot User Modify** — `bot.ModifyCurrentUserAsync(username:, avatarBase64:)`
+- **Interaction Followup Editing** — `GetOriginalResponseAsync`, `EditOriginalResponseAsync`, `DeleteOriginalResponseAsync`, `EditFollowupAsync`, `DeleteFollowupAsync`
+- **ulong Overloads** — All ID-accepting methods now support both `string` and `ulong`
+- **Stage Instances, Scheduled Events, Auto-Mod Rules** — Full CRUD for all remaining Discord REST endpoints
+- **Bug Fix** — `LoadCompleteGuildDataAsync` NRE in sharded modes (SingleProcess + Distributed worker)
+- **Source Generator** — Extended to handle context menu commands and autocomplete handlers
 - ✅ **Voice control operations** - Deafen/undeafen members, move between channels, disconnect from voice
   - `bot.DeafenMemberAsync()`, `bot.UndeafenMemberAsync()`
   - `bot.MoveMemberToVoiceChannelAsync()`, `bot.DisconnectMemberFromVoiceAsync()`

@@ -63,3 +63,56 @@ internal sealed class GatewayPayload
     public long? s { get; set; }
     public JsonElement d { get; set; }
 }
+
+internal sealed class UpdatePresence
+{
+    public int op { get; set; } = 3;
+    public UpdatePresencePayload d { get; set; } = new();
+}
+
+internal sealed class UpdatePresencePayload
+{
+    public long? since { get; set; }
+    public BotActivity[]? activities { get; set; }
+    public string status { get; set; } = "online";
+    public bool afk { get; set; }
+}
+
+public sealed class BotActivity
+{
+    public string name { get; set; } = string.Empty;
+    public int type { get; set; }
+    public string? url { get; set; }
+
+    public BotActivity() { }
+
+    public BotActivity(string name, ActivityType type, string? url = null)
+    {
+        this.name = name;
+        this.type = (int)type;
+        this.url = url;
+    }
+
+    public static BotActivity Game(string name) => new() { name = name, type = (int)ActivityType.Game };
+    public static BotActivity Watching(string name) => new() { name = name, type = (int)ActivityType.Watching };
+    public static BotActivity Listening(string name) => new() { name = name, type = (int)ActivityType.Listening };
+    public static BotActivity Streaming(string name, string url) => new() { name = name, type = (int)ActivityType.Streaming, url = url };
+    public static BotActivity Competing(string name) => new() { name = name, type = (int)ActivityType.Competing };
+}
+
+public enum PresenceStatus
+{
+    Online = 0,
+    Idle = 1,
+    DoNotDisturb = 2,
+    Invisible = 3
+}
+
+public enum ActivityType
+{
+    Game = 0,
+    Streaming = 1,
+    Listening = 2,
+    Watching = 3,
+    Competing = 5
+}

@@ -835,6 +835,377 @@ internal sealed class RestClient : IDisposable
     /// <summary>
     /// Get current rate limit statistics for all buckets.
     /// </summary>
+    // ---- Global commands ----
+
+    public Task PutGlobalCommandsAsync(string applicationId, object[] commands, CancellationToken ct)
+        => PutAsync($"/applications/{applicationId}/commands", commands, ct);
+
+    // ---- Guild management ----
+
+    public async Task<T?> PatchGuildAsync<T>(string guildId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/guilds/{guildId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /guilds/{guildId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task<T?> PostGuildPruneAsync<T>(string guildId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, $"/guilds/{guildId}/prune", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST /guilds/{guildId}/prune. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task<T?> GetGuildPruneCountAsync<T>(string guildId, int days, string[]? includeRoles, CancellationToken ct)
+    {
+        string query = $"?days={days}";
+        if (includeRoles is not null && includeRoles.Length > 0)
+            query += "&include_roles=" + string.Join(",", includeRoles);
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Get, $"/guilds/{guildId}/prune{query}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on GET /guilds/{guildId}/prune. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteGuildAsync(string guildId, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/users/@me/guilds/{guildId}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /users/@me/guilds/{guildId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
+    // ---- Webhook management ----
+
+    public async Task<T?> PostChannelWebhookAsync<T>(string channelId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, $"/channels/{channelId}/webhooks", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST /channels/{channelId}/webhooks. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public Task<T?> GetChannelWebhooksAsync<T>(string channelId, CancellationToken ct)
+        => GetAsync<T>($"/channels/{channelId}/webhooks", ct);
+
+    public Task<T?> GetGuildWebhooksAsync<T>(string guildId, CancellationToken ct)
+        => GetAsync<T>($"/guilds/{guildId}/webhooks", ct);
+
+    public async Task<T?> PatchWebhookAsync<T>(string webhookId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/webhooks/{webhookId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /webhooks/{webhookId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteWebhookAsync(string webhookId, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/webhooks/{webhookId}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /webhooks/{webhookId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
+    // ---- Emoji management ----
+
+    public async Task<T?> PostGuildEmojiAsync<T>(string guildId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, $"/guilds/{guildId}/emojis", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST /guilds/{guildId}/emojis. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task<T?> PatchGuildEmojiAsync<T>(string guildId, string emojiId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/guilds/{guildId}/emojis/{emojiId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /guilds/{guildId}/emojis/{emojiId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteGuildEmojiAsync(string guildId, string emojiId, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/guilds/{guildId}/emojis/{emojiId}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /guilds/{guildId}/emojis/{emojiId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
+    // ---- Invite management ----
+
+    public async Task<T?> PostChannelInviteAsync<T>(string channelId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, $"/channels/{channelId}/invites", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST /channels/{channelId}/invites. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public Task<T?> GetChannelInvitesAsync<T>(string channelId, CancellationToken ct)
+        => GetAsync<T>($"/channels/{channelId}/invites", ct);
+
+    public Task<T?> GetGuildInvitesAsync<T>(string guildId, CancellationToken ct)
+        => GetAsync<T>($"/guilds/{guildId}/invites", ct);
+
+    // ---- Current user management ----
+
+    public async Task<T?> PatchCurrentUserAsync<T>(object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, "/users/@me", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /users/@me. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    // ---- Webhook message management (followup editing) ----
+
+    public Task<T?> GetWebhookMessageAsync<T>(string webhookId, string webhookToken, string messageId, CancellationToken ct)
+        => GetAsync<T>($"/webhooks/{webhookId}/{webhookToken}/messages/{messageId}", ct);
+
+    public async Task<T?> PatchWebhookMessageAsync<T>(string webhookId, string webhookToken, string messageId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/webhooks/{webhookId}/{webhookToken}/messages/{messageId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /webhooks/{webhookId}/{webhookToken}/messages/{messageId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteWebhookMessageAsync(string webhookId, string webhookToken, string messageId, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/webhooks/{webhookId}/{webhookToken}/messages/{messageId}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /webhooks/{webhookId}/{webhookToken}/messages/{messageId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
+    // ---- Sticker management ----
+
+    public Task<T?> GetGuildStickersAsync<T>(string guildId, CancellationToken ct)
+        => GetAsync<T>($"/guilds/{guildId}/stickers", ct);
+
+    public async Task<T?> PostGuildStickerAsync<T>(string guildId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, $"/guilds/{guildId}/stickers", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST /guilds/{guildId}/stickers. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task<T?> PatchGuildStickerAsync<T>(string guildId, string stickerId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/guilds/{guildId}/stickers/{stickerId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /guilds/{guildId}/stickers/{stickerId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteGuildStickerAsync(string guildId, string stickerId, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/guilds/{guildId}/stickers/{stickerId}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /guilds/{guildId}/stickers/{stickerId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
+    // ---- Auto moderation rule management ----
+
+    public Task<T?> GetGuildAutoModerationRulesAsync<T>(string guildId, CancellationToken ct)
+        => GetAsync<T>($"/guilds/{guildId}/auto-moderation/rules", ct);
+
+    public async Task<T?> PostGuildAutoModerationRuleAsync<T>(string guildId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, $"/guilds/{guildId}/auto-moderation/rules", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST /guilds/{guildId}/auto-moderation/rules. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task<T?> PatchGuildAutoModerationRuleAsync<T>(string guildId, string ruleId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/guilds/{guildId}/auto-moderation/rules/{ruleId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /guilds/{guildId}/auto-moderation/rules/{ruleId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteGuildAutoModerationRuleAsync(string guildId, string ruleId, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/guilds/{guildId}/auto-moderation/rules/{ruleId}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /guilds/{guildId}/auto-moderation/rules/{ruleId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
+    // ---- Stage instance management ----
+
+    public async Task<T?> PostStageInstanceAsync<T>(object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, "/stage-instances", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST /stage-instances. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task<T?> PatchStageInstanceAsync<T>(string channelId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/stage-instances/{channelId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /stage-instances/{channelId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteStageInstanceAsync(string channelId, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/stage-instances/{channelId}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /stage-instances/{channelId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
+    // ---- Scheduled event management ----
+
+    public async Task<T?> PostGuildScheduledEventAsync<T>(string guildId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, $"/guilds/{guildId}/scheduled-events", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST /guilds/{guildId}/scheduled-events. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task<T?> PatchGuildScheduledEventAsync<T>(string guildId, string eventId, object payload, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/guilds/{guildId}/scheduled-events/{eventId}", payload, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /guilds/{guildId}/scheduled-events/{eventId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteGuildScheduledEventAsync(string guildId, string eventId, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/guilds/{guildId}/scheduled-events/{eventId}", null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /guilds/{guildId}/scheduled-events/{eventId}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
     public IReadOnlyList<RateLimitBucketInfo> GetRateLimitStats() => _rateLimiter.GetAllBucketInfo();
 
     /// <summary>

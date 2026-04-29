@@ -27,6 +27,9 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
     private const string RequirePermissionsAttr = "SimpleDiscordNet.Commands.RequirePermissionsAttribute";
     private const string CommandOptionAttr = "SimpleDiscordNet.Commands.CommandOptionAttribute";
     private const string CommandChoiceAttr = "SimpleDiscordNet.Commands.CommandChoiceAttribute";
+    private const string UserContextMenuAttr = "SimpleDiscordNet.Commands.UserContextMenuAttribute";
+    private const string MessageContextMenuAttr = "SimpleDiscordNet.Commands.MessageContextMenuAttribute";
+    private const string AutocompleteAttr = "SimpleDiscordNet.Commands.AutocompleteAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -53,14 +56,18 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
 
         bool isSlash = false;
         bool isComponent = false;
+        bool isAutocomplete = false;
+        int? contextMenuType = null;
         string? slashName = null;
         string? slashDescription = null;
-        bool autoDefer = true; // default: auto-defer enabled, use [NoDefer] to disable
-        bool methodHasNoDefer = false; // track if method has explicit [NoDefer]
-        bool deferEphemeral = false; // track if method has [Ephemeral]
-        ulong? requiredPermissions = null; // track [RequirePermissions]
+        bool autoDefer = true;
+        bool methodHasNoDefer = false;
+        bool deferEphemeral = false;
+        ulong? requiredPermissions = null;
         string? componentId = null;
         bool componentPrefix = false;
+        string? autocompleteCommandName = null;
+        string? autocompleteOptionName = null;
 
         foreach (var ad in ms.GetAttributes())
         {
@@ -98,15 +105,77 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             }
             else if (name == RequirePermissionsAttr)
             {
-                // Read the Permissions property (PermissionFlags enum as ulong)
                 if (ad.ConstructorArguments.Length >= 1 && ad.ConstructorArguments[0].Value is ulong perms)
                 {
                     requiredPermissions = perms;
                 }
             }
+            else if (name == UserContextMenuAttr)
+            {
+                contextMenuType = 2;
+                if (ad.ConstructorArguments.Length >= 1)
+                    slashName = ad.ConstructorArguments[0].Value as string;
+            }
+            else if (name == MessageContextMenuAttr)
+            {
+                contextMenuType = 3;
+                if (ad.ConstructorArguments.Length >= 1)
+                    slashName = ad.ConstructorArguments[0].Value as string;
+            }
+            else if (name == AutocompleteAttr)
+            {
+                isAutocomplete = true;
+                if (ad.ConstructorArguments.Length >= 1)
+                    autocompleteCommandName = ad.ConstructorArguments[0].Value as string;
+                if (ad.ConstructorArguments.Length >= 2)
+                    autocompleteOptionName = ad.ConstructorArguments[1].Value as string;
+            }
         }
 
-        if (!isSlash && !isComponent) return null;
+        // For autocomplete handlers, we don't need slash/component context
+        if (isAutocomplete && !isSlash && !isComponent && contextMenuType is null)
+        {
+            bool isStatic2 = ms.IsStatic;
+            bool hasDefaultCtor2 = false;
+            if (!isStatic2)
+            {
+                foreach (var c in ms.ContainingType.InstanceConstructors)
+                {
+                    if (c.DeclaredAccessibility == Accessibility.Public && c.Parameters.Length == 0)
+                    {
+                        hasDefaultCtor2 = true;
+                        break;
+                    }
+                }
+            }
+
+            bool hasContext2 = false;
+            if (ms.Parameters.Length > 0)
+            {
+                var p0 = ms.Parameters[0].Type;
+                var p0Display = p0.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                    .TrimStart('g', 'l', 'o', 'b', 'a', 'l', ':')
+                    .TrimEnd('?');
+                if (p0Display == "SimpleDiscordNet.Commands.InteractionContext" || p0.Name == "InteractionContext")
+                    hasContext2 = true;
+            }
+
+            return new Candidate
+            {
+                Namespace = GetNamespace(ms.ContainingType),
+                TypeName = ms.ContainingType.Name,
+                ContainingType = ms.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).TrimStart('g', 'l', 'o', 'b', 'a', 'l', ':'),
+                MethodName = ms.Name,
+                IsStatic = isStatic2,
+                HasDefaultCtor = hasDefaultCtor2,
+                HasContext = hasContext2,
+                IsAutocomplete = true,
+                AutocompleteCommandName = autocompleteCommandName,
+                AutocompleteOptionName = autocompleteOptionName,
+            };
+        }
+
+        if (!isSlash && !isComponent && contextMenuType is null) return null;
 
         // Group attributes on containing type
         string? groupName = null;
@@ -339,7 +408,9 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             HasDefaultCtor = hasDefaultCtor,
             HasContext = hasContext,
             IsSlash = isSlash,
-            SlashName = slashName,
+            IsAutocomplete = isAutocomplete,
+            ContextMenuType = contextMenuType,
+            SlashName = slashName ?? slashName,
             SlashDescription = slashDescription,
             GroupName = groupName,
             GroupDescription = groupDescription,
@@ -351,6 +422,8 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             IsComponent = isComponent,
             ComponentId = componentId,
             ComponentPrefix = componentPrefix,
+            AutocompleteCommandName = autocompleteCommandName,
+            AutocompleteOptionName = autocompleteOptionName,
             Options = options
         };
     }
@@ -365,7 +438,9 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
     private static void Emit(SourceProductionContext spc, string assemblyName, IReadOnlyList<Candidate> candidates)
     {
         var commands = candidates.Where(c => c.IsSlash && !string.IsNullOrWhiteSpace(c.SlashName)).ToList();
+        var contextMenus = candidates.Where(c => c.ContextMenuType.HasValue && !string.IsNullOrWhiteSpace(c.SlashName)).ToList();
         var components = candidates.Where(c => c.IsComponent && !string.IsNullOrWhiteSpace(c.ComponentId)).ToList();
+        var autocompletes = candidates.Where(c => c.IsAutocomplete && !string.IsNullOrWhiteSpace(c.AutocompleteCommandName) && !string.IsNullOrWhiteSpace(c.AutocompleteOptionName)).ToList();
 
         // Organize slash commands
         var ungrouped = new List<Candidate>();
@@ -508,6 +583,19 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             var permsField = u.RequiredPermissions.HasValue ? $", default_member_permissions = \"{u.RequiredPermissions.Value.ToString(CultureInfo.InvariantCulture)}\"" : "";
             defsBuilder.AppendLine($"    new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{u.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray}{permsField} }},");
         }
+
+        // Context menu commands (type 2 = User, type 3 = Message)
+        var seenContextMenus = new HashSet<(string, int)>();
+        foreach (var cm in contextMenus)
+        {
+            if (!cm.ContextMenuType.HasValue) continue;
+            var key = (cm.SlashName!, cm.ContextMenuType.Value);
+            if (!seenContextMenus.Add(key)) continue;
+
+            var desc = string.IsNullOrWhiteSpace(cm.SlashDescription) ? "context menu" : cm.SlashDescription!.Replace("\"", "\\\"");
+            var permsField = cm.RequiredPermissions.HasValue ? $", default_member_permissions = \"{cm.RequiredPermissions.Value.ToString(CultureInfo.InvariantCulture)}\"" : "";
+            defsBuilder.AppendLine($"    new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{cm.SlashName}\", type = {cm.ContextMenuType.Value.ToString(CultureInfo.InvariantCulture)}, description = \"{desc}\"{permsField} }},");
+        }
         defsBuilder.AppendLine("}");
 
         // Build handler dictionaries
@@ -613,7 +701,11 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         sb.AppendLine("{");
 
         // Emit optional singletons for instance types
-        foreach (var typeName in commands.Where(c => !c.IsStatic).Select(c => c.ContainingType).Concat(components.Where(c => !c.IsStatic).Select(c => c.ContainingType)).Distinct())
+        foreach (var typeName in commands.Where(c => !c.IsStatic).Select(c => c.ContainingType)
+                     .Concat(components.Where(c => !c.IsStatic).Select(c => c.ContainingType))
+                     .Concat(contextMenus.Where(c => !c.IsStatic).Select(c => c.ContainingType))
+                     .Concat(autocompletes.Where(c => !c.IsStatic).Select(c => c.ContainingType))
+                     .Distinct())
         {
             // Check if ANY instance method from this type has a default constructor
             var instanceMethod = candidates.FirstOrDefault(c => c.ContainingType == typeName && !c.IsStatic);
@@ -642,6 +734,13 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             var instExpr = u.IsStatic ? null : (u.HasDefaultCtor ? $"__InstHolder_{SanitizeId(u.ContainingType)}.Value" : null);
             if (!u.IsStatic && instExpr is null) continue;
             sb.AppendLine($"            [\"{u.SlashName}\"] = {BuildHandlerFactory(u)},");
+        }
+        // Context menu handlers (same pattern as ungrouped commands)
+        foreach (var cm in contextMenus)
+        {
+            var instExpr = cm.IsStatic ? null : (cm.HasDefaultCtor ? $"__InstHolder_{SanitizeId(cm.ContainingType)}.Value" : null);
+            if (!cm.IsStatic && instExpr is null) continue;
+            sb.AppendLine($"            [\"{cm.SlashName}\"] = {BuildHandlerFactory(cm)},");
         }
         sb.AppendLine("        };");
 
@@ -698,6 +797,21 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         }
         sb.AppendLine("        };");
 
+        // Autocomplete handlers
+        sb.AppendLine("        public global::System.Collections.Generic.IReadOnlyDictionary<string, global::SimpleDiscordNet.Commands.AutocompleteHandler> AutocompleteHandlers { get; } = new global::System.Collections.Generic.Dictionary<string, global::SimpleDiscordNet.Commands.AutocompleteHandler>(System.StringComparer.Ordinal)");
+        sb.AppendLine("        {");
+        foreach (var a in autocompletes)
+        {
+            string key = $"{a.AutocompleteCommandName}:{a.AutocompleteOptionName}";
+            string invoker;
+            if (a.IsStatic)
+                invoker = $"static async (ctx, ct) => {{ var choices = {a.ContainingType}.{a.MethodName}(ctx); if (choices is not null) return choices; return System.Array.Empty<global::SimpleDiscordNet.Models.CommandChoice>(); }}";
+            else
+                invoker = $"async (ctx, ct) => {{ var choices = __InstHolder_{SanitizeId(a.ContainingType)}.Value.{a.MethodName}(ctx); if (choices is not null) return choices; return System.Array.Empty<global::SimpleDiscordNet.Models.CommandChoice>(); }}";
+            sb.AppendLine($"            [\"{key}\"] = new global::SimpleDiscordNet.Commands.AutocompleteHandler(Invoke: {invoker}),");
+        }
+        sb.AppendLine("        };");
+
         // Definitions
         sb.AppendLine($"        public global::SimpleDiscordNet.Models.ApplicationCommandDefinition[] Definitions {{ get; }} = {defsBuilder};");
 
@@ -748,7 +862,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         spc.AddSource($"{SanitizeId(assemblyName)}_SimpleDiscordNet_GeneratedManifest.g.cs", sb.ToString());
 
         // Report diagnostics for unsupported patterns
-        foreach (var c in commands.Concat(components))
+        foreach (var c in commands.Concat(components).Concat(contextMenus))
         {
             if (!c.IsStatic && !c.HasDefaultCtor)
             {
@@ -906,6 +1020,8 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         public bool HasDefaultCtor { get; set; }
         public bool HasContext { get; set; }
         public bool IsSlash { get; set; }
+        public bool IsAutocomplete { get; set; }
+        public int? ContextMenuType { get; set; }
         public string? SlashName { get; set; }
         public string? SlashDescription { get; set; }
         public string? GroupName { get; set; }
@@ -914,10 +1030,12 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         public string? SubGroupDescription { get; set; }
         public bool AutoDefer { get; set; }
         public bool DeferEphemeral { get; set; }
-        public ulong? RequiredPermissions { get; set; } // Discord permission flags as ulong
+        public ulong? RequiredPermissions { get; set; }
         public bool IsComponent { get; set; }
         public string? ComponentId { get; set; }
         public bool ComponentPrefix { get; set; }
+        public string? AutocompleteCommandName { get; set; }
+        public string? AutocompleteOptionName { get; set; }
         public List<OptionParameter> Options { get; set; } = new List<OptionParameter>();
     }
 

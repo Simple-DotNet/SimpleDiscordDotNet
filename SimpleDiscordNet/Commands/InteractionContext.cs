@@ -195,6 +195,48 @@ public sealed class InteractionContext
     }
 
     /// <summary>
+    /// Gets the original interaction response message.
+    /// Example: var msg = await ctx.GetOriginalResponseAsync();
+    /// </summary>
+    public Task<Entities.DiscordMessage?> GetOriginalResponseAsync(CancellationToken ct = default)
+        => _rest.GetWebhookMessageAsync<Entities.DiscordMessage>(ApplicationId, InteractionToken, "@original", ct);
+
+    /// <summary>
+    /// Edits a followup message.
+    /// Example: await ctx.EditFollowupAsync(messageId, "Updated content");
+    /// </summary>
+    public Task<Entities.DiscordMessage?> EditFollowupAsync(string messageId, string content = "", EmbedBuilder? embed = null, CancellationToken ct = default)
+    {
+        WebhookMessageRequest payload = new()
+        {
+            content = content,
+            embeds = embed is null ? null : [embed.Build()]
+        };
+        return _rest.PatchWebhookMessageAsync<Entities.DiscordMessage>(ApplicationId, InteractionToken, messageId, payload, ct);
+    }
+
+    /// <summary>
+    /// Deletes a followup message.
+    /// Example: await ctx.DeleteFollowupAsync(messageId);
+    /// </summary>
+    public Task DeleteFollowupAsync(string messageId, CancellationToken ct = default)
+        => _rest.DeleteWebhookMessageAsync(ApplicationId, InteractionToken, messageId, ct);
+
+    /// <summary>
+    /// Edits the original interaction response.
+    /// Example: await ctx.EditOriginalResponseAsync("Updated!");
+    /// </summary>
+    public Task<Entities.DiscordMessage?> EditOriginalResponseAsync(string content = "", EmbedBuilder? embed = null, CancellationToken ct = default)
+        => EditFollowupAsync("@original", content, embed, ct);
+
+    /// <summary>
+    /// Deletes the original interaction response.
+    /// Example: await ctx.DeleteOriginalResponseAsync();
+    /// </summary>
+    public Task DeleteOriginalResponseAsync(CancellationToken ct = default)
+        => DeleteFollowupAsync("@original", ct);
+
+    /// <summary>
     /// Defers a component interaction update (responds with a loading state on the message).
     /// </summary>
     public Task DeferUpdateAsync(CancellationToken ct = default)

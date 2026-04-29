@@ -256,7 +256,7 @@ internal sealed class EntityCache
             if (!distinctUsers.ContainsKey(kvp.Key))
             {
                 // Ensure Guilds array is set (empty array for users not in any guild)
-                kvp.Value.Guilds ??= Array.Empty<DiscordGuild>();
+                kvp.Value.Guilds ??= [];
                 distinctUsers[kvp.Key] = kvp.Value;
             }
         }

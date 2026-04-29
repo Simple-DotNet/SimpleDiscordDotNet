@@ -64,11 +64,13 @@ public interface IDiscordContextOperations
     /// Adds a role to a guild member.
     /// </summary>
     Task AddRoleToMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default);
+    Task AddRoleToMemberAsync(ulong guildId, ulong userId, ulong roleId, CancellationToken ct = default);
 
     /// <summary>
     /// Removes a role from a guild member.
     /// </summary>
     Task RemoveRoleFromMemberAsync(string guildId, string userId, string roleId, CancellationToken ct = default);
+    Task RemoveRoleFromMemberAsync(ulong guildId, ulong userId, ulong roleId, CancellationToken ct = default);
 
     /// <summary>
     /// Timeouts a guild member for a specified duration.
@@ -98,6 +100,12 @@ public interface IDiscordContextOperations
     /// Sends a direct message to a user by creating a DM channel and sending a message.
     /// </summary>
     Task<DiscordMessage?> SendDMAsync(string userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default);
+    Task<DiscordMessage?> SendDMAsync(ulong userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Modifies the bot's own username and/or avatar.
+    /// </summary>
+    Task<DiscordUser?> ModifyCurrentUserAsync(string? username = null, string? avatarBase64 = null, CancellationToken ct = default);
 
     /// <summary>
     /// Pins a message in a channel.
@@ -138,6 +146,7 @@ public interface IDiscordContextOperations
     /// Gets recent messages from a channel (up to 100).
     /// </summary>
     Task<IEnumerable<DiscordMessage>> GetMessagesAsync(string channelId, int limit = 50, string? before = null, string? after = null, CancellationToken ct = default);
+    Task<IEnumerable<DiscordMessage>> GetMessagesAsync(ulong channelId, int limit = 50, ulong? before = null, ulong? after = null, CancellationToken ct = default);
 
     /// <summary>
     /// Bulk deletes multiple messages (2-100 messages, must be less than 14 days old).
