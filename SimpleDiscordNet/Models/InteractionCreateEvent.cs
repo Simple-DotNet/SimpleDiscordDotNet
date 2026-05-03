@@ -1,4 +1,6 @@
-﻿namespace SimpleDiscordNet.Models;
+﻿using SimpleDiscordNet.Primitives;
+
+namespace SimpleDiscordNet.Models;
 
 public enum InteractionType
 {
@@ -47,6 +49,8 @@ public sealed record InteractionOption
     public string? String { get; init; }
     public long? Integer { get; init; }
     public bool? Boolean { get; init; }
+    public bool? Focused { get; init; }
+    public IReadOnlyList<InteractionOption> Options { get; init; } = [];
 }
 
 public sealed record MessageComponentData
@@ -92,5 +96,5 @@ internal sealed class InteractionResponseData
     public string? content { get; set; }
     public Embed[]? embeds { get; set; }
     public int? flags { get; set; }
-    public object[]? components { get; set; }
+    public IComponent[]? components { get; set; }
 }

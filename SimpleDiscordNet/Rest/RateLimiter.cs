@@ -10,14 +10,18 @@ internal sealed class RateLimiter : IDisposable
 {
     private readonly TimeProvider _time;
     private readonly ConcurrentDictionary<string, RateLimitBucket> _buckets = new();
+    private readonly ConcurrentDictionary<string, string> _routeToBucket = new();
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastAccess = new();
     private readonly SemaphoreSlim _globalLimiter;
     private readonly Timer _globalResetTimer;
+    private readonly Timer _cleanupTimer;
 
-    // Global rate limit: 50 requests per second
     private const int GlobalLimit = 50;
     private int _globalRemaining = GlobalLimit;
     private DateTimeOffset _globalResetAt;
     private readonly object _globalLock = new();
+
+    private static readonly TimeSpan BucketEvictionAge = TimeSpan.FromMinutes(10);
 
     public RateLimiter(TimeProvider? timeProvider = null)
     {
@@ -25,8 +29,8 @@ internal sealed class RateLimiter : IDisposable
         _globalLimiter = new SemaphoreSlim(1, 1);
         _globalResetAt = _time.GetUtcNow().AddSeconds(1);
 
-        // Reset global counter every second
         _globalResetTimer = new Timer(_ => ResetGlobalLimit(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        _cleanupTimer = new Timer(_ => CleanupUnusedBuckets(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
     }
 
     /// <summary>
@@ -35,17 +39,18 @@ internal sealed class RateLimiter : IDisposable
     /// </summary>
     public async Task<RateLimitHandle> AcquireAsync(string route, CancellationToken ct)
     {
-        // Wait for global rate limit
         await WaitForGlobalLimitAsync(route, ct).ConfigureAwait(false);
 
-        // Get or create bucket for this route (will be updated with actual bucket ID from headers)
-        string bucketKey = GetBucketKey(route);
+        string bucketKey = _routeToBucket.TryGetValue(route, out string? mappedBucketId)
+            ? mappedBucketId
+            : GetBucketKey(route);
+
+        _lastAccess[bucketKey] = _time.GetUtcNow();
         RateLimitBucket bucket = _buckets.GetOrAdd(bucketKey, static (key, arg) => new RateLimitBucket(key, arg.route, arg.time), (route, time: _time));
 
-        // Acquire slot in the bucket
         IDisposable bucketLease = await bucket.AcquireAsync(ct).ConfigureAwait(false);
 
-        return new RateLimitHandle(bucket, bucketLease, this);
+        return new RateLimitHandle(bucketLease);
     }
 
     /// <summary>
@@ -53,24 +58,23 @@ internal sealed class RateLimiter : IDisposable
     /// </summary>
     public async Task UpdateFromResponseAsync(string route, HttpResponseMessage response)
     {
-        // Update bucket ID if provided in headers
         string? bucketId = null;
         if (response.Headers.TryGetValues("X-RateLimit-Bucket", out var bucketValues))
         {
             bucketId = bucketValues.FirstOrDefault();
         }
 
-        // Get the appropriate bucket
-        string bucketKey = bucketId ?? GetBucketKey(route);
+        string bucketKey = bucketId
+            ?? (_routeToBucket.TryGetValue(route, out string? existingMapping) ? existingMapping : GetBucketKey(route));
+
+        _lastAccess[bucketKey] = _time.GetUtcNow();
         RateLimitBucket bucket = _buckets.GetOrAdd(bucketKey, static (key, arg) => new RateLimitBucket(key, arg.route, arg.time), (route, time: _time));
 
-        // If we got a bucket ID from Discord, migrate the route to use that bucket
-        if (bucketId != null && bucketId != GetBucketKey(route))
+        if (bucketId != null)
         {
-            _buckets.TryAdd(bucketId, bucket);
+            _routeToBucket[route] = bucketId;
         }
 
-        // Update bucket state from headers
         await bucket.UpdateFromHeadersAsync(response).ConfigureAwait(false);
     }
 
@@ -79,16 +83,34 @@ internal sealed class RateLimiter : IDisposable
     /// </summary>
     public async Task Handle429Async(string route, HttpResponseMessage response, CancellationToken ct)
     {
-        string bucketKey = GetBucketKey(route);
+        string bucketKey;
         if (response.Headers.TryGetValues("X-RateLimit-Bucket", out IEnumerable<string>? bucketValues))
         {
-            string? bucketId = bucketValues.FirstOrDefault();
-            if (bucketId != null)
+            string? responseBucketId = bucketValues.FirstOrDefault();
+            if (responseBucketId != null)
             {
-                bucketKey = bucketId;
+                bucketKey = responseBucketId;
+                _routeToBucket[route] = responseBucketId;
+            }
+            else if (_routeToBucket.TryGetValue(route, out string? mapped))
+            {
+                bucketKey = mapped;
+            }
+            else
+            {
+                bucketKey = GetBucketKey(route);
             }
         }
+        else if (_routeToBucket.TryGetValue(route, out string? mapped))
+        {
+            bucketKey = mapped;
+        }
+        else
+        {
+            bucketKey = GetBucketKey(route);
+        }
 
+        _lastAccess[bucketKey] = _time.GetUtcNow();
         RateLimitBucket bucket = _buckets.GetOrAdd(bucketKey, static (key, arg) => new RateLimitBucket(key, arg.route, arg.time), (route, time: _time));
         await bucket.Handle429Async(response, ct).ConfigureAwait(false);
     }
@@ -111,50 +133,55 @@ internal sealed class RateLimiter : IDisposable
 
     private async Task WaitForGlobalLimitAsync(string route, CancellationToken ct)
     {
-        await _globalLimiter.WaitAsync(ct).ConfigureAwait(false);
-        try
+        while (true)
         {
-            lock (_globalLock)
+            await _globalLimiter.WaitAsync(ct).ConfigureAwait(false);
+            TimeSpan waitTime = TimeSpan.Zero;
+            bool shouldWait = false;
+            try
             {
-                DateTimeOffset now = _time.GetUtcNow();
-
-                // If we've exceeded the global limit, wait until reset
-                if (_globalRemaining <= 0 && _globalResetAt > now)
+                lock (_globalLock)
                 {
-                    TimeSpan waitTime = _globalResetAt - now;
-
-                    RateLimitEventManager.RaisePreEmptiveWait(new RateLimitPreEmptiveWaitEvent
+                    DateTimeOffset now = _time.GetUtcNow();
+                    if (now >= _globalResetAt)
                     {
-                        BucketId = "global",
-                        Route = route,
-                        Remaining = _globalRemaining,
-                        Limit = GlobalLimit,
-                        ResetAt = _globalResetAt,
-                        WaitDuration = waitTime,
-                        IsGlobal = true,
-                        Timestamp = now
-                    });
+                        _globalRemaining = GlobalLimit;
+                        _globalResetAt = now.AddSeconds(1);
+                    }
 
-                    // Release the semaphore and wait
-                    _globalLimiter.Release();
-                    Task.Delay(waitTime, ct).ConfigureAwait(false).GetAwaiter().GetResult();
-                    _globalLimiter.WaitAsync(ct).ConfigureAwait(false).GetAwaiter().GetResult();
+                    if (_globalRemaining <= 0 && _globalResetAt > now)
+                    {
+                        waitTime = _globalResetAt - now;
+                        shouldWait = true;
 
-                    // After waiting, reset should have occurred
-                    _globalRemaining = GlobalLimit;
-                    _globalResetAt = now.AddSeconds(1);
-                }
-
-                // Decrement global counter
-                if (_globalRemaining > 0)
-                {
-                    _globalRemaining--;
+                        RateLimitEventManager.RaisePreEmptiveWait(new RateLimitPreEmptiveWaitEvent
+                        {
+                            BucketId = "global",
+                            Route = route,
+                            Remaining = _globalRemaining,
+                            Limit = GlobalLimit,
+                            ResetAt = _globalResetAt,
+                            WaitDuration = waitTime,
+                            IsGlobal = true,
+                            Timestamp = now
+                        });
+                    }
+                    else if (_globalRemaining > 0)
+                    {
+                        _globalRemaining--;
+                        return;
+                    }
                 }
             }
-        }
-        finally
-        {
-            _globalLimiter.Release();
+            finally
+            {
+                _globalLimiter.Release();
+            }
+
+            if (shouldWait)
+            {
+                await Task.Delay(waitTime, ct).ConfigureAwait(false);
+            }
         }
     }
 
@@ -171,21 +198,36 @@ internal sealed class RateLimiter : IDisposable
 
     private static string GetBucketKey(string route)
     {
-        // Extract major parameters from route for bucketing
-        // Discord groups routes by major parameters (guild_id, channel_id, webhook_id)
-        // For now, use the route itself as the key until we get the bucket ID from headers
         return route;
     }
 
-    private sealed class PendingRequest
+    private void CleanupUnusedBuckets()
     {
-        public required string Route { get; init; }
-        public required TaskCompletionSource<bool> CompletionSource { get; init; }
-        public required CancellationToken CancellationToken { get; init; }
+        DateTimeOffset cutoff = _time.GetUtcNow() - BucketEvictionAge;
+
+        var candidates = _lastAccess.Where(kvp => kvp.Value < cutoff).Select(kvp => kvp.Key).ToList();
+
+        foreach (string bucketKey in candidates)
+        {
+            if (_lastAccess.TryGetValue(bucketKey, out DateTimeOffset ts) && ts < cutoff)
+            {
+                _buckets.TryRemove(bucketKey, out _);
+                _lastAccess.TryRemove(bucketKey, out _);
+            }
+        }
+
+        foreach (var kvp in _routeToBucket)
+        {
+            if (!_buckets.ContainsKey(kvp.Value))
+            {
+                _routeToBucket.TryRemove(kvp.Key, out _);
+            }
+        }
     }
 
     public void Dispose()
     {
+        _cleanupTimer.Dispose();
         _globalResetTimer.Dispose();
         _globalLimiter.Dispose();
     }
@@ -193,22 +235,16 @@ internal sealed class RateLimiter : IDisposable
 
 /// <summary>
 /// Handle returned from acquiring a rate limit slot.
-/// Provides access to the bucket for updating after the request completes.
+/// Disposing releases the acquired slot back to the bucket.
 /// </summary>
-public sealed class RateLimitHandle : IDisposable
+internal sealed class RateLimitHandle : IDisposable
 {
-    private readonly RateLimitBucket _bucket;
     private readonly IDisposable _bucketLease;
-    private readonly RateLimiter _limiter;
 
-    internal RateLimitHandle(RateLimitBucket bucket, IDisposable bucketLease, RateLimiter limiter)
+    internal RateLimitHandle(IDisposable bucketLease)
     {
-        _bucket = bucket;
         _bucketLease = bucketLease;
-        _limiter = limiter;
     }
-
-    internal RateLimitBucket Bucket => _bucket;
 
     public void Dispose()
     {

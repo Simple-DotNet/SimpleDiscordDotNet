@@ -21,6 +21,7 @@ internal sealed class ShardHttpServer : IDisposable
     private readonly HttpListener _listener;
     private readonly JsonSerializerOptions _json;
     private readonly CancellationTokenSource _cts = new();
+    private readonly NativeLogger? _logger;
     private Task? _listenerTask;
     private volatile bool _disposed;
 
@@ -36,10 +37,11 @@ internal sealed class ShardHttpServer : IDisposable
     private Func<HttpListenerContext, Task>? _handoffHandler;
     private Func<HttpListenerContext, Task>? _resumedAnnouncementHandler;
 
-    public ShardHttpServer(string prefix)
+    public ShardHttpServer(string prefix, NativeLogger? logger = null)
     {
         _listener = new HttpListener();
         _listener.Prefixes.Add(prefix);
+        _logger = logger;
         _json = new JsonSerializerOptions(Serialization.DiscordJsonContext.Default.Options)
         {
             TypeInfoResolver = Serialization.DiscordJsonContext.Default
@@ -131,9 +133,9 @@ internal sealed class ShardHttpServer : IDisposable
             {
                 break;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Swallow listener errors (handled by callers)
+                _logger?.Log(LogLevel.Warning, $"ShardHttpServer listener error: {ex.Message}", ex);
             }
         }
     }
@@ -171,7 +173,7 @@ internal sealed class ShardHttpServer : IDisposable
         }
         catch (Exception ex)
         {
-            // Swallow request errors
+            _logger?.Log(LogLevel.Error, $"ShardHttpServer request handling error for {context.Request.Url}: {ex.Message}", ex);
             try
             {
                 await RespondAsync(context, 500, new HttpErrorResponse { error = ex.Message }).ConfigureAwait(false);
@@ -230,6 +232,16 @@ internal sealed class ShardHttpServer : IDisposable
         _cts.Cancel();
         _listener.Stop();
         _listener.Close();
+
+        try
+        {
+            _listenerTask?.Wait(TimeSpan.FromSeconds(5));
+        }
+        catch
+        {
+            // Timeout or task fault is acceptable during shutdown
+        }
+
         _cts.Dispose();
 
         // Server stopped (no logging needed at this level)

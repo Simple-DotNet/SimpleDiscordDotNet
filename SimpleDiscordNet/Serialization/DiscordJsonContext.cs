@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SimpleDiscordNet.Commands;
 using SimpleDiscordNet.Entities;
 using SimpleDiscordNet.Gateway;
 using SimpleDiscordNet.Models;
@@ -59,6 +60,7 @@ namespace SimpleDiscordNet.Serialization;
 [JsonSerializable(typeof(InteractionCreateEvent))]
 [JsonSerializable(typeof(InteractionOption))]
 [JsonSerializable(typeof(MessageComponentData))]
+[JsonSerializable(typeof(MessageReference))]
 [JsonSerializable(typeof(ActionRow))]
 [JsonSerializable(typeof(Button))]
 [JsonSerializable(typeof(StringSelect))]
@@ -98,6 +100,7 @@ namespace SimpleDiscordNet.Serialization;
 [JsonSerializable(typeof(CoordinatorHandoffData))]
 [JsonSerializable(typeof(CoordinatorResumedAnnouncement))]
 [JsonSerializable(typeof(HttpErrorResponse))]
+[JsonSerializable(typeof(SuccessResponse))]
 // Sharding model arrays/lists
 [JsonSerializable(typeof(List<SuccessionEntry>))]
 [JsonSerializable(typeof(List<int>))]
@@ -105,5 +108,27 @@ namespace SimpleDiscordNet.Serialization;
 [JsonSerializable(typeof(List<ShardMetrics>))]
 [JsonSerializable(typeof(List<PeerNodeState>))]
 [JsonSerializable(typeof(Dictionary<int, string>))]
+// AOT-safe typed replacements
+[JsonSerializable(typeof(EmojiReference))]
+[JsonSerializable(typeof(AllowedMentionsPayload))]
+[JsonSerializable(typeof(AttachmentReference))]
+[JsonSerializable(typeof(AutocompleteResponsePayload))]
+[JsonSerializable(typeof(SelectDefaultValue))]
+[JsonSerializable(typeof(SelectDefaultValue[]))]
+[JsonSerializable(typeof(IComponent))]
+[JsonSerializable(typeof(AutocompleteResponseData))]
+[JsonSerializable(typeof(ChannelPermissionOverrideRequest))]
+[JsonSerializable(typeof(PruneMembersRequest))]
+[JsonSerializable(typeof(WebhookRequest))]
+[JsonSerializable(typeof(CreateEmojiRequest))]
+[JsonSerializable(typeof(ModifyEmojiRequest))]
+[JsonSerializable(typeof(CreateStickerRequest))]
+[JsonSerializable(typeof(ModifyStickerRequest))]
+[JsonSerializable(typeof(CreateStageInstanceRequest))]
+[JsonSerializable(typeof(ModifyStageInstanceRequest))]
+[JsonSerializable(typeof(CreateInviteRequest))]
+[JsonSerializable(typeof(ModifyCurrentUserRequest))]
+[JsonSerializable(typeof(ModifyNicknameRequest))]
+[JsonSerializable(typeof(EmptyPayload))]
 
 internal partial class DiscordJsonContext : JsonSerializerContext;

@@ -13,13 +13,11 @@ internal sealed class RateLimitBucket
     public string BucketId { get; }
     public string Route { get; }
 
-    // Rate limit state from headers
     private int _limit = 1;
     private int _remaining = 1;
     private DateTimeOffset _resetAt = DateTimeOffset.MinValue;
     private bool _isGlobal;
 
-    // Statistics
     private long _totalRequests;
     private long _totalWaits;
     private long _total429s;
@@ -33,53 +31,49 @@ internal sealed class RateLimitBucket
 
     public async Task<IDisposable> AcquireAsync(CancellationToken ct)
     {
-        await _semaphore.WaitAsync(ct).ConfigureAwait(false);
-
-        try
+        while (true)
         {
-            // Check if we need to wait for rate limit reset
-            DateTimeOffset now = _time.GetUtcNow();
-
-            if (_remaining <= 0 && _resetAt > now)
+            await _semaphore.WaitAsync(ct).ConfigureAwait(false);
+            TimeSpan? waitDelay = null;
+            try
             {
-                TimeSpan delay = _resetAt - now;
-                _totalWaits++;
+                DateTimeOffset now = _time.GetUtcNow();
 
-                // Raise pre-emptive wait event
-                RateLimitEventManager.RaisePreEmptiveWait(new RateLimitPreEmptiveWaitEvent
+                if (now >= _resetAt)
                 {
-                    BucketId = BucketId,
-                    Route = Route,
-                    Remaining = _remaining,
-                    Limit = _limit,
-                    ResetAt = _resetAt,
-                    WaitDuration = delay,
-                    IsGlobal = _isGlobal,
-                    Timestamp = now
-                });
+                    _remaining = _limit > 0 ? _limit : 1;
+                }
 
-                await Task.Delay(delay, ct).ConfigureAwait(false);
+                if (_remaining <= 0 && _resetAt > now)
+                {
+                    waitDelay = _resetAt - now;
+                    _totalWaits++;
 
-                // After reset, we should have full limit again
-                _remaining = _limit;
+                    RateLimitEventManager.RaisePreEmptiveWait(new RateLimitPreEmptiveWaitEvent
+                    {
+                        BucketId = BucketId,
+                        Route = Route,
+                        Remaining = _remaining,
+                        Limit = _limit,
+                        ResetAt = _resetAt,
+                        WaitDuration = waitDelay.Value,
+                        IsGlobal = _isGlobal,
+                        Timestamp = now
+                    });
+                }
+                else if (_remaining > 0)
+                {
+                    _remaining--;
+                    _totalRequests++;
+                    return NoOpDisposable.Instance;
+                }
             }
-
-            // Decrement remaining count
-            if (_remaining > 0)
+            finally
             {
-                _remaining--;
+                _semaphore.Release();
             }
 
-            _totalRequests++;
-
-            // Return disposable that will release the semaphore when disposed
-            return new BucketReleaser(_semaphore);
-        }
-        catch
-        {
-            // If anything goes wrong, release the semaphore immediately
-            _semaphore.Release();
-            throw;
+            await Task.Delay(waitDelay ?? TimeSpan.FromMilliseconds(200), ct).ConfigureAwait(false);
         }
     }
 
@@ -91,7 +85,6 @@ internal sealed class RateLimitBucket
             DateTimeOffset now = _time.GetUtcNow();
             bool wasUpdated = false;
 
-            // Parse rate limit headers
             if (response.Headers.TryGetValues("X-RateLimit-Limit", out var limitValues))
             {
                 using var enumerator = limitValues.GetEnumerator();
@@ -122,7 +115,6 @@ internal sealed class RateLimitBucket
                 }
             }
 
-            // Check for global rate limit
             _isGlobal = false;
             if (response.Headers.TryGetValues("X-RateLimit-Global", out var globalValues))
             {
@@ -161,7 +153,6 @@ internal sealed class RateLimitBucket
             _total429s++;
             DateTimeOffset now = _time.GetUtcNow();
 
-            // Parse retry-after (can be seconds or milliseconds)
             TimeSpan retryAfter = TimeSpan.FromSeconds(1);
             if (response.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryValues))
             {
@@ -172,7 +163,6 @@ internal sealed class RateLimitBucket
                 }
             }
 
-            // Check if this is a global rate limit
             bool isGlobal = false;
             if (response.Headers.TryGetValues("X-RateLimit-Global", out IEnumerable<string>? globalValues))
             {
@@ -183,8 +173,7 @@ internal sealed class RateLimitBucket
                 }
             }
 
-            // Update reset time
-            _resetAt = now + retryAfter;
+            _resetAt = now + retryAfter > _resetAt ? now + retryAfter : _resetAt;
             _remaining = 0;
             _isGlobal = isGlobal;
 
@@ -223,16 +212,9 @@ internal sealed class RateLimitBucket
         };
     }
 
-    private sealed class BucketReleaser(SemaphoreSlim semaphore) : IDisposable
+    private sealed class NoOpDisposable : IDisposable
     {
-        private int _disposed;
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0)
-            {
-                semaphore.Release();
-            }
-        }
+        public static readonly NoOpDisposable Instance = new();
+        public void Dispose() { }
     }
 }

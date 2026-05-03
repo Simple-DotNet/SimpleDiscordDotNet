@@ -8,8 +8,8 @@ using SimpleDiscordNet.Entities;
 
 namespace SimpleDiscordNet.Rest;
 
-[UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "RestClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all known types.")]
-[UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "RestClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all known types.")]
+[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "RestClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all known types.")]
+[UnconditionalSuppressMessage("AOT", "IL3050", Justification = "RestClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all known types.")]
 internal sealed class RestClient : IDisposable
 {
     private readonly HttpClient _http;
@@ -28,7 +28,7 @@ internal sealed class RestClient : IDisposable
         _rateLimiter = limiter;
 
         _http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bot", token);
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("SimpleDiscordDotNet (https://github.com/YourUsername/SimpleDiscordDotNet, 1.2.0)");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("SimpleDiscordDotNet");
     }
 
     /// <summary>
@@ -131,6 +131,74 @@ internal sealed class RestClient : IDisposable
         }
     }
 
+    private async Task<HttpResponseMessage> SendMultipartAsync(string route, Func<MultipartFormDataContent> contentFactory, CancellationToken ct)
+    {
+        int retryCount = 0;
+
+        while (true)
+        {
+            using RateLimitHandle handle = await _rateLimiter.AcquireAsync(route, ct).ConfigureAwait(false);
+
+            using MultipartFormDataContent content = contentFactory();
+            using HttpRequestMessage req = new(HttpMethod.Post, BaseUrl + route);
+            req.Content = content;
+
+            HttpResponseMessage res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+
+            await _rateLimiter.UpdateFromResponseAsync(route, res).ConfigureAwait(false);
+
+            if ((int)res.StatusCode == 429)
+            {
+                retryCount++;
+
+                if (retryCount > MaxRetries)
+                {
+                    _logger.Log(LogLevel.Error, $"Rate limit retry exhausted for {route} after {MaxRetries} attempts");
+                    res.Dispose();
+                    throw new HttpRequestException($"Rate limit retry exhausted for {route} after {MaxRetries} attempts");
+                }
+
+                await _rateLimiter.Handle429Async(route, res, ct).ConfigureAwait(false);
+
+                TimeSpan retryAfter = TimeSpan.FromSeconds(1);
+                if (res.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryValues))
+                {
+                    using IEnumerator<string> enumerator = retryValues.GetEnumerator();
+                    if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double retrySeconds))
+                    {
+                        retryAfter = TimeSpan.FromSeconds(retrySeconds);
+                    }
+                }
+
+                _logger.Log(LogLevel.Warning, $"Rate limited on {route}. Multipart retry {retryCount}/{MaxRetries} after {retryAfter.TotalSeconds:F1}s");
+
+                res.Dispose();
+                await Task.Delay(retryAfter, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            if ((int)res.StatusCode >= 500 && (int)res.StatusCode < 600)
+            {
+                retryCount++;
+
+                if (retryCount > MaxRetries)
+                {
+                    _logger.Log(LogLevel.Error, $"Server error retry exhausted for {route} after {MaxRetries} attempts");
+                    return res;
+                }
+
+                TimeSpan backoff = TimeSpan.FromSeconds(Math.Pow(2, retryCount - 1));
+                _logger.Log(LogLevel.Warning, $"Server error {res.StatusCode} on {route}. Multipart retry {retryCount}/{MaxRetries} after {backoff.TotalSeconds}s");
+
+                res.Dispose();
+                await Task.Delay(backoff, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            return res;
+        }
+    }
+
     public async Task<T?> GetAsync<T>(string route, CancellationToken ct)
     {
         using HttpResponseMessage res = await SendAsync(HttpMethod.Get, route, null, ct).ConfigureAwait(false);
@@ -192,28 +260,7 @@ internal sealed class RestClient : IDisposable
 
     public async Task PostMultipartAsync(string route, object payload, (string fileName, ReadOnlyMemory<byte> data) file, CancellationToken ct)
     {
-        // Multipart uploads need special handling - acquire rate limit but don't use SendAsync wrapper
-        using RateLimitHandle handle = await _rateLimiter.AcquireAsync(route, ct).ConfigureAwait(false);
-
-        using MultipartFormDataContent content = new();
-        System.Buffers.ArrayBufferWriter<byte> jsonBuffer = new();
-        using (Utf8JsonWriter writer = new(jsonBuffer))
-        {
-            JsonSerializer.Serialize(writer, payload, _json);
-        }
-        ReadOnlyMemoryContent jsonContent = new(jsonBuffer.WrittenMemory);
-        jsonContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-        content.Add(jsonContent, "payload_json");
-
-        ReadOnlyMemoryContent bytesContent = new(file.data);
-        bytesContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-        content.Add(bytesContent, "files[0]", file.fileName);
-
-        using HttpRequestMessage req = new(HttpMethod.Post, BaseUrl + route);
-        req.Content = content;
-        HttpResponseMessage res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-
-        await _rateLimiter.UpdateFromResponseAsync(route, res).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendMultipartAsync(route, () => BuildMultipartContent(payload, file), ct).ConfigureAwait(false);
 
         if (!res.IsSuccessStatusCode)
         {
@@ -221,33 +268,11 @@ internal sealed class RestClient : IDisposable
             _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {route}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
-        res.Dispose();
     }
 
     public async Task<T?> PostMultipartAsync<T>(string route, object payload, (string fileName, ReadOnlyMemory<byte> data) file, CancellationToken ct)
     {
-        // Multipart uploads need special handling - acquire rate limit but don't use SendAsync wrapper
-        using RateLimitHandle handle = await _rateLimiter.AcquireAsync(route, ct).ConfigureAwait(false);
-
-        using MultipartFormDataContent content = new();
-        System.Buffers.ArrayBufferWriter<byte> jsonBuffer = new();
-        using (Utf8JsonWriter writer = new(jsonBuffer))
-        {
-            JsonSerializer.Serialize(writer, payload, _json);
-        }
-        ReadOnlyMemoryContent jsonContent = new(jsonBuffer.WrittenMemory);
-        jsonContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-        content.Add(jsonContent, "payload_json");
-
-        ReadOnlyMemoryContent bytesContent = new(file.data);
-        bytesContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-        content.Add(bytesContent, "files[0]", file.fileName);
-
-        using HttpRequestMessage req = new(HttpMethod.Post, BaseUrl + route);
-        req.Content = content;
-        HttpResponseMessage res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-
-        await _rateLimiter.UpdateFromResponseAsync(route, res).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendMultipartAsync(route, () => BuildMultipartContent(payload, file), ct).ConfigureAwait(false);
 
         if (!res.IsSuccessStatusCode)
         {
@@ -261,10 +286,39 @@ internal sealed class RestClient : IDisposable
 
     public async Task<T?> PostMultipartAsync<T>(string route, object payload, List<(string fileName, ReadOnlyMemory<byte> data)> files, CancellationToken ct)
     {
-        // Multipart uploads need special handling - acquire rate limit but don't use SendAsync wrapper
-        using RateLimitHandle handle = await _rateLimiter.AcquireAsync(route, ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendMultipartAsync(route, () => BuildMultipartContent(payload, files), ct).ConfigureAwait(false);
 
-        using MultipartFormDataContent content = new();
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {route}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    private MultipartFormDataContent BuildMultipartContent(object payload, (string fileName, ReadOnlyMemory<byte> data) file)
+    {
+        MultipartFormDataContent content = new();
+        System.Buffers.ArrayBufferWriter<byte> jsonBuffer = new();
+        using (Utf8JsonWriter writer = new(jsonBuffer))
+        {
+            JsonSerializer.Serialize(writer, payload, _json);
+        }
+        ReadOnlyMemoryContent jsonContent = new(jsonBuffer.WrittenMemory);
+        jsonContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        content.Add(jsonContent, "payload_json");
+
+        ReadOnlyMemoryContent bytesContent = new(file.data);
+        bytesContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        content.Add(bytesContent, "files[0]", file.fileName);
+        return content;
+    }
+
+    private MultipartFormDataContent BuildMultipartContent(object payload, List<(string fileName, ReadOnlyMemory<byte> data)> files)
+    {
+        MultipartFormDataContent content = new();
         System.Buffers.ArrayBufferWriter<byte> jsonBuffer = new();
         using (Utf8JsonWriter writer = new(jsonBuffer))
         {
@@ -280,21 +334,7 @@ internal sealed class RestClient : IDisposable
             bytesContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
             content.Add(bytesContent, $"files[{i}]", files[i].fileName);
         }
-
-        using HttpRequestMessage req = new(HttpMethod.Post, BaseUrl + route);
-        req.Content = content;
-        HttpResponseMessage res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-
-        await _rateLimiter.UpdateFromResponseAsync(route, res).ConfigureAwait(false);
-
-        if (!res.IsSuccessStatusCode)
-        {
-            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {route}. Body: {body}");
-        }
-        res.EnsureSuccessStatusCode();
-        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+        return content;
     }
 
     // ---- Convenience helpers for interactions & commands ----
@@ -832,9 +872,6 @@ internal sealed class RestClient : IDisposable
         res.EnsureSuccessStatusCode();
     }
 
-    /// <summary>
-    /// Get current rate limit statistics for all buckets.
-    /// </summary>
     // ---- Global commands ----
 
     public Task PutGlobalCommandsAsync(string applicationId, object[] commands, CancellationToken ct)
@@ -1215,7 +1252,6 @@ internal sealed class RestClient : IDisposable
 
     public void Dispose()
     {
-        _http.Dispose();
         _rateLimiter.Dispose();
     }
 }

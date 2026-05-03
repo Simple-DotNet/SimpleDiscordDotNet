@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace SimpleDiscordNet.Models;
 
 /// <summary>
@@ -38,5 +40,5 @@ public sealed class ApplicationCommandDefinition
 public sealed class CommandChoice
 {
     public required string name { get; set; }
-    public object value { get; set; } = null!; // string, int, or double
+    public JsonElement? value { get; set; }
 }

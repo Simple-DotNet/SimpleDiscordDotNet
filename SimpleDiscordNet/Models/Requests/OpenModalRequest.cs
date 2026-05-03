@@ -1,4 +1,6 @@
-﻿namespace SimpleDiscordNet.Models.Requests;
+﻿using SimpleDiscordNet.Primitives;
+
+namespace SimpleDiscordNet.Models.Requests;
 
 internal sealed class OpenModalRequest
 {
@@ -10,5 +12,5 @@ internal sealed class ModalData
 {
     public required string custom_id { get; set; }
     public required string title { get; set; }
-    public object[] components { get; set; } = [];
+    public IComponent[] components { get; set; } = [];
 }

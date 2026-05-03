@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace SimpleDiscordNet.Primitives;
 
@@ -20,6 +21,15 @@ public enum ComponentType
     ChannelSelect = 8
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(ActionRow), (int)ComponentType.ActionRow)]
+[JsonDerivedType(typeof(Button), (int)ComponentType.Button)]
+[JsonDerivedType(typeof(StringSelect), (int)ComponentType.StringSelect)]
+[JsonDerivedType(typeof(TextInput), (int)ComponentType.TextInput)]
+[JsonDerivedType(typeof(UserSelect), (int)ComponentType.UserSelect)]
+[JsonDerivedType(typeof(RoleSelect), (int)ComponentType.RoleSelect)]
+[JsonDerivedType(typeof(MentionableSelect), (int)ComponentType.MentionableSelect)]
+[JsonDerivedType(typeof(ChannelSelect), (int)ComponentType.ChannelSelect)]
 public interface IComponent
 {
     int type { get; }
@@ -28,8 +38,8 @@ public interface IComponent
 public sealed class ActionRow : IComponent
 {
     public int type => 1;
-    public object[] components { get; }
-    public ActionRow(params object[] components)
+    public IComponent[] components { get; }
+    public ActionRow(params IComponent[] components)
     {
         this.components = components;
     }
@@ -77,7 +87,7 @@ public sealed class SelectOption
 
         if (emojiName != null || emojiId != null)
         {
-            this.emoji = new { name = emojiName, id = emojiId };
+            this.emoji = new EmojiReference(emojiName, emojiId);
         }
     }
 }
@@ -207,7 +217,7 @@ public sealed class ChannelSelect : IComponent
 }
 
 // Text input (used inside modal action rows)
-public sealed class TextInput
+public sealed class TextInput : IComponent
 {
     public int type => 4; // text input
     public string custom_id { get; }
@@ -230,4 +240,22 @@ public sealed class TextInput
         this.value = value;
         this.placeholder = placeholder;
     }
+}
+
+public sealed class EmojiReference
+{
+    public string? name { get; }
+    public string? id { get; }
+    public EmojiReference(string? name, string? id)
+    {
+        this.name = name;
+        this.id = id;
+    }
+}
+
+public sealed class AttachmentReference
+{
+    public int id { get; }
+    public string filename { get; }
+    public AttachmentReference(int id, string filename) { this.id = id; this.filename = filename; }
 }

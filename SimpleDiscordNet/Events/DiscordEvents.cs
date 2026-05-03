@@ -7,6 +7,25 @@ namespace SimpleDiscordNet.Events;
 /// Global static event hub for Discord bot events. Consumers can subscribe
 /// from any project without holding a DiscordBot instance.
 /// </summary>
+/// <remarks>
+/// <para><b>IMPORTANT — Event handler leak warning:</b></para>
+/// <para>All events on this class are <c>static</c>. Subscribing to a static event creates a strong reference
+/// from the event delegate to the subscriber, which prevents the subscriber from being garbage collected.
+/// If a short-lived object (e.g. a command module, a transient service, or a web request handler)
+/// subscribes to any event on this class and does not explicitly unsubscribe, that object will never
+/// be collected and the delegate will accumulate on every subscription — causing a memory leak
+/// and growing invocation cost over time.</para>
+/// <para><b>Consumers MUST unsubscribe their handlers when they are no longer needed.</b>
+/// For cleanup scenarios (e.g. host shutdown, DI container disposal), call <see cref="UnsubscribeAll"/>
+/// to clear every subscriber from every event.</para>
+/// <para>Example correct usage:
+/// <code>
+/// DiscordEvents.MessageCreated += OnMessageCreated;
+/// // ... later, when done:
+/// DiscordEvents.MessageCreated -= OnMessageCreated;
+/// </code>
+/// </para>
+/// </remarks>
 public static class DiscordEvents
 {
     // ---- Connection and logging ----
@@ -278,4 +297,82 @@ public static class DiscordEvents
 
     internal static void RaisePollVoteAdded(object? sender, PollVoteAddedEvent e) => PollVoteAdded?.Invoke(sender, e);
     internal static void RaisePollVoteRemoved(object? sender, PollVoteRemovedEvent e) => PollVoteRemoved?.Invoke(sender, e);
+
+    /// <summary>
+    /// Clears every subscriber from every static event on this class.
+    /// Use this only during controlled shutdown or DI container disposal
+    /// to break strong references that would otherwise prevent GC.
+    /// </summary>
+    /// <remarks>
+    /// After calling this method, all events will be <c>null</c> and
+    /// no further invocations will reach any subscriber. Any code
+    /// that needs events after this call MUST re-subscribe.
+    /// </remarks>
+    public static void UnsubscribeAll()
+    {
+        Connected = null;
+        Disconnected = null;
+        Error = null;
+        Log = null;
+        GuildAdded = null;
+        GuildUpdated = null;
+        GuildRemoved = null;
+        GuildReady = null;
+        ChannelCreated = null;
+        ChannelUpdated = null;
+        ChannelDeleted = null;
+        RoleCreated = null;
+        RoleUpdated = null;
+        RoleDeleted = null;
+        ThreadCreated = null;
+        ThreadUpdated = null;
+        ThreadDeleted = null;
+        MessageCreated = null;
+        MessageUpdated = null;
+        MessageDeleted = null;
+        MessagesBulkDeleted = null;
+        ReactionAdded = null;
+        ReactionRemoved = null;
+        ReactionsClearedForEmoji = null;
+        ReactionsCleared = null;
+        MemberJoined = null;
+        MemberUpdated = null;
+        MemberLeft = null;
+        GuildMembersChunk = null;
+        BanAdded = null;
+        BanRemoved = null;
+        BotUserUpdated = null;
+        AuditLogEntryCreated = null;
+        InteractionCreated = null;
+        GuildEmojisUpdated = null;
+        VoiceStateUpdated = null;
+        PresenceUpdated = null;
+        TypingStarted = null;
+        WebhooksUpdated = null;
+        InviteCreated = null;
+        InviteDeleted = null;
+        GuildIntegrationsUpdated = null;
+        DirectMessageReceived = null;
+        AutoModerationRuleCreated = null;
+        AutoModerationRuleUpdated = null;
+        AutoModerationRuleDeleted = null;
+        AutoModerationActionExecution = null;
+        StageInstanceCreated = null;
+        StageInstanceUpdated = null;
+        StageInstanceDeleted = null;
+        GuildScheduledEventCreated = null;
+        GuildScheduledEventUpdated = null;
+        GuildScheduledEventDeleted = null;
+        GuildScheduledEventUserAdded = null;
+        GuildScheduledEventUserRemoved = null;
+        IntegrationCreated = null;
+        IntegrationUpdated = null;
+        IntegrationDeleted = null;
+        VoiceServerUpdated = null;
+        GuildJoinRequestCreated = null;
+        GuildJoinRequestUpdated = null;
+        GuildJoinRequestDeleted = null;
+        PollVoteAdded = null;
+        PollVoteRemoved = null;
+    }
 }

@@ -119,6 +119,18 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
+### v1.10.0 - Comprehensive Bug Fixes & Hardening Pass
+- **Rate Limiter** — Route-to-bucketId mapping fixed (rate limiting was non-functional). Semaphore deadlock eliminated. Sync-over-async removed. `Handle429Async` uses `Max(existing, new)` for reset time.
+- **Gateway Reliability** — `async void` heartbeat → `async Task` loop. `ReceiveLoop` uses while-loop instead of recursion; no longer dies on reconnect contention. `_ctsHeartbeat` protected by lock. Author parsing handles webhook messages. `Dispose` sets `_autoReconnect=false`.
+- **AOT Compatibility** — Zero anonymous types in any serialization path. `IComponent` gets `[JsonPolymorphic]+[JsonDerivedType]` for all 8 implementations. 30+ new `[JsonSerializable]` registrations. All `object`/`object[]` payload properties replaced with typed alternatives. `[UnconditionalSuppressMessage]` checkIds fixed.
+- **Memory Safety** — `_users` LRU eviction with stale-entry drain (max 100k). Event handler leaks closed in `Shard`, `DiscordBot`. `ObservableConcurrentList` now disposes `ReaderWriterLockSlim` on replacement.
+- **Thread Safety** — Dozens of race conditions fixed: `_ctsHeartbeat` TOCTOU, `PeerNode.AssignedShards` concurrent reads via `GetShardsSnapshot()`, `EntityCache` role array writes under lock, `RemoveChannel`/`RemoveMember` use atomic `Remove()`, `_started` atomic gate, `DisposeAsync` re-entrancy guard.
+- **Autocomplete** — `InteractionOption.Focused` parsed from gateway. Handler key includes subcommand group/command path. `AutocompleteHandler` uses primary constructor. Generator respects `HasContext` flag, emits per-subcommand permissions, SDN003 duplicate diagnostic.
+- **InteractionContext** — Double-acknowledge guard via `_responded`. `_deferred`/`_deferredUpdate` made volatile. `UpdateMessageAsync` routes to edit-original when type-5 deferred. `_responded` reset on defer failure.
+- **Performance** — ChannelId ulong cached; O(1) option lookup dictionary. `EntityCache` O(1) channel/role secondary indices. `SnapshotUsers` O(N*M)→O(N). Prefix matching prefers longest match.
+- **Cleanup** — Dead fields/classes removed (`_heartbeatTimer`, `PendingRequest`, `RequestMetrics` timer). `DiscordEvents.UnsubscribeAll()` helper. `SendMessageWithButtonsAsync` accepts `CancellationToken`.
+- **Sharding** — `ShardCoordinator.HandleResumptionAsync` calls `StopAsync` after handoff. Timer disposal uses `Dispose(WaitHandle)`. Assignment operations protected by `_assignmentLock`.
+
 ### v1.9.0 - Context Menus, Autocomplete, Presence & Full API Coverage
 - **Presence/Status API** — `SetGameAsync("Minecraft")`, `SetWatchingAsync("YouTube")`, `SetListeningAsync("Spotify")`, `SetStreamingAsync("Live!", url)`, `SetCompetingAsync("tournament")`, `SetStatusAsync(PresenceStatus.DoNotDisturb)`
 - **Context Menu Commands** — `[UserContextMenu("Info")]` and `[MessageContextMenu("Report")]` attributes

@@ -3,14 +3,13 @@ using System.Globalization;
 using System.Net.WebSockets;
 using System.Text.Json;
 using SimpleDiscordNet.Entities;
-using SimpleDiscordNet.Logging;
 using SimpleDiscordNet.Models;
 using SimpleDiscordNet.Events;
 
 namespace SimpleDiscordNet.Gateway;
 
-[UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "GatewayClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all gateway payload types.")]
-[UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "GatewayClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all gateway payload types.")]
+[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "GatewayClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all gateway payload types.")]
+[UnconditionalSuppressMessage("AOT", "IL3050", Justification = "GatewayClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all gateway payload types.")]
 internal sealed partial class GatewayClient(string token, DiscordIntents intents, JsonSerializerOptions json, int? shardId = null, int? totalShards = null)
     : IDisposable
 {
@@ -20,16 +19,20 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
     private long _seq;
     private string? _sessionId;
     private int _heartbeatIntervalMs;
-    private Timer? _heartbeatTimer;
     private volatile bool _awaitingHeartbeatAck;
     private int _missedHeartbeatAcks;
     private readonly Random _rand = new();
     private int _reconnectAttempt;
-    private volatile int _reconnecting; // 0 = no, 1 = yes
     private volatile bool _autoReconnect = true;
+    private int _isReady;
+    private readonly SemaphoreSlim _reconnectGate = new(1, 1);
+    private CancellationTokenSource? _ctsHeartbeat;
+    private readonly object _heartbeatLock = new();
 
     internal int? ShardId { get; } = shardId;
     internal int? TotalShards { get; } = totalShards;
+
+    internal bool IsReady => Volatile.Read(ref _isReady) == 1;
 
     public event EventHandler? Connected;
     public event EventHandler<Exception?>? Disconnected;
@@ -131,17 +134,27 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
 
     public async Task ConnectAsync(CancellationToken cancellationToken)
     {
+        if (_loopTask != null) throw new InvalidOperationException("Already connected. Call DisconnectAsync before reconnecting.");
         await ConnectSocketAsync(cancellationToken).ConfigureAwait(false);
         _loopTask = Task.Run(() => ReceiveLoop(_internalCts.Token), cancellationToken);
-        Connected?.Invoke(this, EventArgs.Empty);
     }
 
     public async Task DisconnectAsync()
     {
+        CancellationTokenSource? hbCts = null;
         try
         {
             _autoReconnect = false;
             await _internalCts.CancelAsync();
+            lock (_heartbeatLock)
+            {
+                hbCts = _ctsHeartbeat;
+                _ctsHeartbeat = null;
+            }
+            if (hbCts != null)
+            {
+                try { await hbCts.CancelAsync(); } catch { /* ignored */ }
+            }
             if (_ws.State == WebSocketState.Open)
             {
                 await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "shutdown", CancellationToken.None).ConfigureAwait(false);
@@ -153,7 +166,7 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
         }
         finally
         {
-            try { _heartbeatTimer?.Dispose(); } catch { /* ignored */ }
+            try { hbCts?.Dispose(); } catch { /* ignored */ }
 
             Disconnected?.Invoke(this, null);
         }
@@ -173,6 +186,11 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                 UserUpdate?.Invoke(this, botUser);
             }
 
+            if (Interlocked.CompareExchange(ref _isReady, 1, 0) == 0)
+            {
+                Connected?.Invoke(this, EventArgs.Empty);
+            }
+
             return;
         }
 
@@ -183,13 +201,20 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                 string id = data.GetProperty("id").GetString()!;
                 string channelId = data.GetProperty("channel_id").GetString()!;
                 string content = data.GetProperty("content").GetString() ?? string.Empty;
-                JsonElement authorObj = data.GetProperty("author");
-                Author author = new()
+                Author author;
+                if (data.TryGetProperty("author", out JsonElement authorObj))
                 {
-                    Id = authorObj.GetProperty("id").GetDiscordId(),
-                    Username = authorObj.GetProperty("username").GetString()!,
-                    Bot = authorObj.TryGetProperty("bot", out JsonElement botEl) && botEl.ValueKind == JsonValueKind.True ? true : null
-                };
+                    author = new()
+                    {
+                        Id = authorObj.GetProperty("id").GetDiscordId(),
+                        Username = authorObj.GetProperty("username").GetString()!,
+                        Bot = authorObj.TryGetProperty("bot", out JsonElement botEl) && botEl.ValueKind == JsonValueKind.True ? true : null
+                    };
+                }
+                else
+                {
+                    author = new() { Id = 0, Username = "Unknown" };
+                }
                 string? guildId = null;
                 if (data.TryGetProperty("guild_id", out JsonElement gidEl))
                 {
@@ -797,7 +822,8 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                         {
                             string oname = o.GetProperty("name").GetString()!;
                             string? value = o.TryGetProperty("value", out JsonElement val) ? (val.GetString() ?? string.Empty) : null;
-                            options.Add(new InteractionOption { Name = oname, String = value });
+                            bool focused = o.TryGetProperty("focused", out JsonElement fEl) && fEl.ValueKind == JsonValueKind.True;
+                            options.Add(new InteractionOption { Name = oname, String = value, Focused = focused });
                         }
                     }
 
@@ -824,8 +850,23 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
 
     public void Dispose()
     {
-        try { _heartbeatTimer?.Dispose(); } catch { /* Timer disposal can throw, safe to ignore during cleanup */ }
+        _autoReconnect = false;
+        try { _internalCts.Cancel(); } catch { /* Cancellation may throw, safe to ignore during cleanup */ }
+        CancellationTokenSource? hbCts;
+        lock (_heartbeatLock)
+        {
+            hbCts = _ctsHeartbeat;
+            _ctsHeartbeat = null;
+        }
+        try { hbCts?.Cancel(); } catch { /* Cancellation may throw, safe to ignore during cleanup */ }
+        if (_loopTask != null)
+        {
+            try { _loopTask.Wait(TimeSpan.FromSeconds(5)); } catch { /* Task may fault or timeout, safe to ignore */ }
+            try { _loopTask.Dispose(); } catch { /* Task disposal can throw, safe to ignore */ }
+        }
         try { _ws.Dispose(); } catch { /* WebSocket disposal can throw, safe to ignore during cleanup */ }
-        _internalCts.Dispose();
+        try { _internalCts.Dispose(); } catch { /* CTS disposal can throw, safe to ignore during cleanup */ }
+        try { _reconnectGate.Dispose(); } catch { /* SemaphoreSlim disposal can throw, safe to ignore during cleanup */ }
+        try { hbCts?.Dispose(); } catch { /* CTS disposal can throw, safe to ignore during cleanup */ }
     }
 }

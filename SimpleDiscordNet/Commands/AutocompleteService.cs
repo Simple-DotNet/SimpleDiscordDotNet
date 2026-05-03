@@ -22,19 +22,12 @@ internal sealed class AutocompleteService(NativeLogger logger)
             return;
         }
 
-        string? focusedOption = null;
+        string? focusedOption = FindFocusedOption(data.Options);
         string? focusedValue = null;
 
-        if (data.Options is { Count: >0 })
+        if (focusedOption is not null)
         {
-            foreach (InteractionOption opt in data.Options)
-            {
-                if (opt is { Name: not null } && (string.Equals(opt.Name, data.Name, StringComparison.Ordinal) || opt.String is not null))
-                {
-                    focusedOption = opt.Name;
-                    focusedValue = opt.String;
-                }
-            }
+            focusedValue = FindFocusedValue(data.Options);
         }
 
         if (focusedOption is null)
@@ -44,7 +37,13 @@ internal sealed class AutocompleteService(NativeLogger logger)
             return;
         }
 
-        string key = $"{data.Name}:{focusedOption}";
+        string key = data.SubcommandGroup is not null && data.Subcommand is not null
+            ? $"{data.Name}:{data.SubcommandGroup}:{data.Subcommand}:{focusedOption}"
+            : data.SubcommandGroup is not null
+                ? $"{data.Name}:{data.SubcommandGroup}:{focusedOption}"
+                : data.Subcommand is not null
+                    ? $"{data.Name}:{data.Subcommand}:{focusedOption}"
+                    : $"{data.Name}:{focusedOption}";
         if (!_handlers.TryGetValue(key, out AutocompleteHandler? handler))
         {
             logger.Log(LogLevel.Debug, $"No autocomplete handler found for '{key}'");
@@ -68,13 +67,67 @@ internal sealed class AutocompleteService(NativeLogger logger)
 
     private static async Task SendChoicesAsync(InteractionCreateEvent e, IEnumerable<CommandChoice> choices, RestClient rest, CancellationToken ct)
     {
-        var payload = new { type = 8, data = new { choices = choices.ToArray() } };
+        var payload = new AutocompleteResponsePayload(choices.ToArray());
         await rest.PostInteractionCallbackAsync(e.Id, e.Token, payload, ct).ConfigureAwait(false);
     }
 
     private static async Task SendEmptyChoicesAsync(InteractionCreateEvent e, RestClient rest, CancellationToken ct)
     {
-        var payload = new { type = 8, data = new { choices = System.Array.Empty<CommandChoice>() } };
+        var payload = new AutocompleteResponsePayload([]);
         await rest.PostInteractionCallbackAsync(e.Id, e.Token, payload, ct).ConfigureAwait(false);
     }
+
+    private static string? FindFocusedOption(IReadOnlyList<InteractionOption>? options)
+    {
+        if (options is not { Count: > 0 })
+            return null;
+
+        foreach (InteractionOption opt in options)
+        {
+            if (opt.Focused is true)
+                return opt.Name;
+
+            if (opt.Options is { Count: > 0 })
+            {
+                string? nested = FindFocusedOption(opt.Options);
+                if (nested is not null)
+                    return nested;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FindFocusedValue(IReadOnlyList<InteractionOption>? options)
+    {
+        if (options is not { Count: > 0 })
+            return null;
+
+        foreach (InteractionOption opt in options)
+        {
+            if (opt.Focused is true)
+                return opt.String;
+
+            if (opt.Options is { Count: > 0 })
+            {
+                string? nested = FindFocusedValue(opt.Options);
+                if (nested is not null)
+                    return nested;
+            }
+        }
+
+        return null;
+    }
+}
+
+internal sealed class AutocompleteResponsePayload
+{
+    public int type { get; } = 8;
+    public AutocompleteResponseData data { get; }
+    public AutocompleteResponsePayload(CommandChoice[] choices) { data = new AutocompleteResponseData { choices = choices }; }
+}
+
+internal sealed class AutocompleteResponseData
+{
+    public CommandChoice[] choices { get; init; } = [];
 }

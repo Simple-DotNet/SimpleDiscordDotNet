@@ -105,9 +105,15 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             }
             else if (name == RequirePermissionsAttr)
             {
-                if (ad.ConstructorArguments.Length >= 1 && ad.ConstructorArguments[0].Value is ulong perms)
+                if (ad.ConstructorArguments.Length >= 1)
                 {
-                    requiredPermissions = perms;
+                    var val = ad.ConstructorArguments[0].Value;
+                    if (val is ulong u)
+                        requiredPermissions = u;
+                    else if (val is long l)
+                        requiredPermissions = (ulong)l;
+                    else if (val is int i)
+                        requiredPermissions = (ulong)i;
                 }
             }
             else if (name == UserContextMenuAttr)
@@ -132,50 +138,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             }
         }
 
-        // For autocomplete handlers, we don't need slash/component context
-        if (isAutocomplete && !isSlash && !isComponent && contextMenuType is null)
-        {
-            bool isStatic2 = ms.IsStatic;
-            bool hasDefaultCtor2 = false;
-            if (!isStatic2)
-            {
-                foreach (var c in ms.ContainingType.InstanceConstructors)
-                {
-                    if (c.DeclaredAccessibility == Accessibility.Public && c.Parameters.Length == 0)
-                    {
-                        hasDefaultCtor2 = true;
-                        break;
-                    }
-                }
-            }
-
-            bool hasContext2 = false;
-            if (ms.Parameters.Length > 0)
-            {
-                var p0 = ms.Parameters[0].Type;
-                var p0Display = p0.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
-                    .TrimStart('g', 'l', 'o', 'b', 'a', 'l', ':')
-                    .TrimEnd('?');
-                if (p0Display == "SimpleDiscordNet.Commands.InteractionContext" || p0.Name == "InteractionContext")
-                    hasContext2 = true;
-            }
-
-            return new Candidate
-            {
-                Namespace = GetNamespace(ms.ContainingType),
-                TypeName = ms.ContainingType.Name,
-                ContainingType = ms.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).TrimStart('g', 'l', 'o', 'b', 'a', 'l', ':'),
-                MethodName = ms.Name,
-                IsStatic = isStatic2,
-                HasDefaultCtor = hasDefaultCtor2,
-                HasContext = hasContext2,
-                IsAutocomplete = true,
-                AutocompleteCommandName = autocompleteCommandName,
-                AutocompleteOptionName = autocompleteOptionName,
-            };
-        }
-
-        if (!isSlash && !isComponent && contextMenuType is null) return null;
+        if (!isSlash && !isComponent && contextMenuType is null && !isAutocomplete) return null;
 
         // Group attributes on containing type
         string? groupName = null;
@@ -410,7 +373,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
             IsSlash = isSlash,
             IsAutocomplete = isAutocomplete,
             ContextMenuType = contextMenuType,
-            SlashName = slashName ?? slashName,
+            SlashName = slashName,
             SlashDescription = slashDescription,
             GroupName = groupName,
             GroupDescription = groupDescription,
@@ -537,11 +500,24 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                 foreach (var sc in direct)
                 {
                     var key = (sc.SlashName!, sc.SlashDescription ?? "command");
-                    if (!seen.Add(key)) continue;
+                    if (!seen.Add(key))
+                    {
+                        spc.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                            id: "SDN003",
+                            title: "Duplicate slash command name",
+                            messageFormat: "Duplicate slash command name '{0}' found in the same group/subgroup.",
+                            category: "SimpleDiscordNet",
+                            DiagnosticSeverity.Warning,
+                            isEnabledByDefault: true),
+                            Location.None,
+                            sc.SlashName));
+                        continue;
+                    }
 
                     var desc = string.IsNullOrWhiteSpace(sc.SlashDescription) ? "command" : sc.SlashDescription!.Replace("\"", "\\\"");
                     var optsArray = BuildOptionsArray(sc.Options);
-                    defsBuilder.AppendLine($"            new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{sc.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray} }},");
+                    var scPerms = sc.RequiredPermissions.HasValue ? $", default_member_permissions = \"{sc.RequiredPermissions.Value.ToString(CultureInfo.InvariantCulture)}\"" : "";
+                    defsBuilder.AppendLine($"            new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{sc.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray}{scPerms} }},");
                 }
             }
 
@@ -558,11 +534,24 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                     foreach (var sc in sg.Value)
                     {
                         var key = (sc.SlashName!, sc.SlashDescription ?? "command");
-                        if (!seen.Add(key)) continue;
+                        if (!seen.Add(key))
+                        {
+                            spc.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                                id: "SDN003",
+                                title: "Duplicate slash command name",
+                                messageFormat: "Duplicate slash command name '{0}' found in the same group/subgroup.",
+                                category: "SimpleDiscordNet",
+                                DiagnosticSeverity.Warning,
+                                isEnabledByDefault: true),
+                                Location.None,
+                                sc.SlashName));
+                            continue;
+                        }
 
                         var desc = string.IsNullOrWhiteSpace(sc.SlashDescription) ? "command" : sc.SlashDescription!.Replace("\"", "\\\"");
                         var optsArray = BuildOptionsArray(sc.Options);
-                        defsBuilder.AppendLine($"                new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{sc.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray} }},");
+                        var scPerms = sc.RequiredPermissions.HasValue ? $", default_member_permissions = \"{sc.RequiredPermissions.Value.ToString(CultureInfo.InvariantCulture)}\"" : "";
+                        defsBuilder.AppendLine($"                new global::SimpleDiscordNet.Models.ApplicationCommandDefinition {{ name = \"{sc.SlashName}\", type = 1, description = \"{desc}\", options = {optsArray}{scPerms} }},");
                     }
                     defsBuilder.AppendLine("            }},");
                 }
@@ -670,8 +659,8 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
                     }
                     else if (opt.TypeName == "string" || opt.TypeName == "User" || opt.TypeName == "Channel" || opt.TypeName == "Role")
                     {
-                        // Required reference types - add null-forgiving operator (Discord should guarantee these exist for required params)
-                        bindingCode.Append($"var {varName} = {extraction}!; ");
+                        // Required reference types - throw descriptive exception if null instead of using null-forgiving
+                        bindingCode.Append($"var {varName} = {extraction} ?? throw new global::System.InvalidOperationException(\"Required parameter '{opt.ParameterName}' of type '{opt.TypeName}' was null.\"); ");
                     }
                     else
                     {
@@ -802,12 +791,20 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         sb.AppendLine("        {");
         foreach (var a in autocompletes)
         {
-            string key = $"{a.AutocompleteCommandName}:{a.AutocompleteOptionName}";
+            string key = !string.IsNullOrWhiteSpace(a.SubGroupName)
+                ? $"{a.AutocompleteCommandName}:{a.SubGroupName}:{a.SlashName}:{a.AutocompleteOptionName}"
+                : !string.IsNullOrWhiteSpace(a.GroupName)
+                    ? $"{a.AutocompleteCommandName}:{a.SlashName}:{a.AutocompleteOptionName}"
+                    : $"{a.AutocompleteCommandName}:{a.AutocompleteOptionName}";
             string invoker;
-            if (a.IsStatic)
-                invoker = $"static async (ctx, ct) => {{ var choices = {a.ContainingType}.{a.MethodName}(ctx); if (choices is not null) return choices; return System.Array.Empty<global::SimpleDiscordNet.Models.CommandChoice>(); }}";
+            if (a.HasContext)
+                invoker = a.IsStatic
+                    ? $"static async (ctx, ct) => {{ var choices = {a.ContainingType}.{a.MethodName}(ctx); if (choices is not null) return choices; return System.Array.Empty<global::SimpleDiscordNet.Models.CommandChoice>(); }}"
+                    : $"async (ctx, ct) => {{ var choices = __InstHolder_{SanitizeId(a.ContainingType)}.Value.{a.MethodName}(ctx); if (choices is not null) return choices; return System.Array.Empty<global::SimpleDiscordNet.Models.CommandChoice>(); }}";
             else
-                invoker = $"async (ctx, ct) => {{ var choices = __InstHolder_{SanitizeId(a.ContainingType)}.Value.{a.MethodName}(ctx); if (choices is not null) return choices; return System.Array.Empty<global::SimpleDiscordNet.Models.CommandChoice>(); }}";
+                invoker = a.IsStatic
+                    ? $"static async (ctx, ct) => {{ var choices = {a.ContainingType}.{a.MethodName}(); if (choices is not null) return choices; return System.Array.Empty<global::SimpleDiscordNet.Models.CommandChoice>(); }}"
+                    : $"async (ctx, ct) => {{ var choices = __InstHolder_{SanitizeId(a.ContainingType)}.Value.{a.MethodName}(); if (choices is not null) return choices; return System.Array.Empty<global::SimpleDiscordNet.Models.CommandChoice>(); }}";
             sb.AppendLine($"            [\"{key}\"] = new global::SimpleDiscordNet.Commands.AutocompleteHandler(Invoke: {invoker}),");
         }
         sb.AppendLine("        };");
@@ -862,7 +859,7 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         spc.AddSource($"{SanitizeId(assemblyName)}_SimpleDiscordNet_GeneratedManifest.g.cs", sb.ToString());
 
         // Report diagnostics for unsupported patterns
-        foreach (var c in commands.Concat(components).Concat(contextMenus))
+        foreach (var c in commands.Concat(components).Concat(contextMenus).Concat(autocompletes))
         {
             if (!c.IsStatic && !c.HasDefaultCtor)
             {

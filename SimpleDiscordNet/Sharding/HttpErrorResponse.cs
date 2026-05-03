@@ -7,3 +7,8 @@ internal sealed class HttpErrorResponse
 {
     public required string error { get; init; }
 }
+
+internal sealed class SuccessResponse
+{
+    public bool success { get; init; } = true;
+}

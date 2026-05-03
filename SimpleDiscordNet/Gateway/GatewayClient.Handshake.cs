@@ -5,7 +5,7 @@ namespace SimpleDiscordNet.Gateway;
 
 internal sealed partial class GatewayClient
 {
-    private async Task IdentifyAsync()
+    private async Task IdentifyAsync(CancellationToken ct)
     {
         Identify identify = new()
         {
@@ -22,14 +22,14 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, identify, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
     }
 
-    private async Task ResumeAsync()
+    private async Task ResumeAsync(CancellationToken ct)
     {
         if (string.IsNullOrEmpty(_sessionId))
         {
-            await IdentifyAsync().ConfigureAwait(false);
+            await IdentifyAsync(ct).ConfigureAwait(false);
             return;
         }
         Resume resume = new()
@@ -38,7 +38,7 @@ internal sealed partial class GatewayClient
             {
                 token = token,
                 session_id = _sessionId!,
-                seq = _seq
+                seq = Interlocked.Read(ref _seq)
             }
         };
         System.Buffers.ArrayBufferWriter<byte> buffer = new();
@@ -46,14 +46,14 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, resume, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Request all members for a guild via gateway. Discord will respond with GUILD_MEMBERS_CHUNK events.
     /// Requires GuildMembers intent.
     /// </summary>
-    public async Task RequestGuildMembersAsync(string guildId)
+    public async Task RequestGuildMembersAsync(string guildId, CancellationToken ct = default)
     {
         if (_ws.State != WebSocketState.Open) return;
 
@@ -71,13 +71,13 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, request, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Update the bot's presence/status via gateway.
     /// </summary>
-    public async Task UpdatePresenceAsync(string status, BotActivity[]? activities, long? since = null, bool afk = false)
+    public async Task UpdatePresenceAsync(string status, BotActivity[]? activities, long? since = null, bool afk = false, CancellationToken ct = default)
     {
         if (_ws.State != WebSocketState.Open) return;
 
@@ -96,6 +96,6 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, presence, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
     }
 }

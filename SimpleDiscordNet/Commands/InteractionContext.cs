@@ -11,8 +11,15 @@ public sealed class InteractionContext
 {
     private readonly RestClient _rest;
     private readonly InteractionCreateEvent _evt;
-    private bool _deferred;
-    private bool _deferredUpdate;
+    private volatile bool _deferred;
+    private volatile bool _deferredUpdate;
+    private int _responded;
+
+    // Cached parsed ChannelId for O(1) lookup in Channel property
+    private readonly ulong? _channelIdUlong;
+
+    // Cached options dictionary for O(1) lookup
+    private Dictionary<string, InteractionOption>? _optionsCache;
 
     public string InteractionId { get; }
     public string InteractionToken { get; }
@@ -44,7 +51,7 @@ public sealed class InteractionContext
     /// <summary>
     /// The channel entity if available in cache.
     /// </summary>
-    public Entities.DiscordChannel? Channel => ChannelId is not null ? Context.DiscordContext.GetChannel(ulong.Parse(ChannelId, CultureInfo.InvariantCulture)) : null;
+    public Entities.DiscordChannel? Channel => _channelIdUlong.HasValue ? Context.DiscordContext.GetChannel(_channelIdUlong.Value) : null;
 
     /// <summary>
     /// The shard ID that received this interaction (0-based).
@@ -70,7 +77,7 @@ public sealed class InteractionContext
     };
 
     public string? MessageId => _evt.Component?.MessageId;
-    public IReadOnlyList<string> SelectedValues => _evt.Component?.Values ?? [];
+    public IReadOnlyList<string> SelectedValues => _evt.Component?.Values ?? Array.Empty<string>();
 
     internal InteractionContext(RestClient rest, InteractionCreateEvent evt)
     {
@@ -82,12 +89,15 @@ public sealed class InteractionContext
         GuildId = evt.GuildId;
         ChannelId = evt.ChannelId;
 
+        // Cache parsed ChannelId
+        _channelIdUlong = evt.ChannelId is not null && ulong.TryParse(evt.ChannelId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong cid) ? cid : null;
+
         // For guild interactions, use Member.User; for DM interactions, create DiscordUser from Author
         User = evt.Member?.User ?? (evt.Author != null ? new Entities.DiscordUser
         {
             Id = evt.Author.Id,
             Username = evt.Author.Username,
-            Guilds = []
+            Guilds = Array.Empty<Entities.DiscordGuild>()
         } : null);
 
         Type = evt.Type;
@@ -113,6 +123,9 @@ public sealed class InteractionContext
             return _rest.PostWebhookFollowupAsync(ApplicationId, InteractionToken, webhookPayload, ct);
         }
 
+        if (Interlocked.Exchange(ref _responded, 1) == 1)
+            return Task.CompletedTask;
+
         InteractionResponseData data = new()
         {
             content = payload.content,
@@ -133,19 +146,19 @@ public sealed class InteractionContext
     /// </summary>
     public Task RespondAsync(string content = "", EmbedBuilder? embed = null, bool ephemeral = false, CancellationToken ct = default)
     {
-        // If we already deferred the interaction, Discord requires using the follow-up webhook endpoint
         if (_deferred || _deferredUpdate)
-        {
             return FollowupAsync(content, embed, ephemeral, ct);
-        }
+
+        if (Interlocked.Exchange(ref _responded, 1) == 1)
+            return Task.CompletedTask;
 
         InteractionResponseData data = new()
         {
             content = content,
             embeds = embed is null ? null : [embed.Build()],
-            flags = ephemeral ? 1 << 6 : null // EPHEMERAL flag
+            flags = ephemeral ? 1 << 6 : null
         };
-        InteractionResponse resp = new() { type = 4, data = data }; // CHANNEL_MESSAGE_WITH_SOURCE
+        InteractionResponse resp = new() { type = 4, data = data };
         return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, resp, ct);
     }
 
@@ -156,17 +169,23 @@ public sealed class InteractionContext
     /// </summary>
     public Task DeferAsync(bool ephemeral = false, CancellationToken ct = default)
     {
+        if (Interlocked.Exchange(ref _responded, 1) == 1)
+            return Task.CompletedTask;
+
         InteractionResponseData data = new() { flags = ephemeral ? 1 << 6 : null };
-        InteractionResponse resp = new() { type = 5, data = data }; // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+        InteractionResponse resp = new() { type = 5, data = data };
         Task task = _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, resp, ct);
-        // Mark as deferred once the defer completes successfully
         return task.ContinueWith(t =>
         {
             if (t.IsCompletedSuccessfully)
             {
                 _deferred = true;
             }
-            // Propagate exceptions/cancellation
+            else
+            {
+                Interlocked.Exchange(ref _responded, 0);
+            }
+
             t.GetAwaiter().GetResult();
         }, ct);
     }
@@ -241,13 +260,20 @@ public sealed class InteractionContext
     /// </summary>
     public Task DeferUpdateAsync(CancellationToken ct = default)
     {
-        InteractionResponse resp = new() { type = 6, data = null }; // DEFERRED_UPDATE_MESSAGE
+        if (Interlocked.Exchange(ref _responded, 1) == 1)
+            return Task.CompletedTask;
+
+        InteractionResponse resp = new() { type = 6, data = null };
         Task task = _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, resp, ct);
         return task.ContinueWith(t =>
         {
             if (t.IsCompletedSuccessfully)
             {
                 _deferredUpdate = true;
+            }
+            else
+            {
+                Interlocked.Exchange(ref _responded, 0);
             }
             t.GetAwaiter().GetResult();
         }, ct);
@@ -258,17 +284,25 @@ public sealed class InteractionContext
     /// </summary>
     public Task UpdateMessageAsync(string content, IEnumerable<IComponent>? components = null, CancellationToken ct = default)
     {
-        object? comps = components is null ? null : new object[] { new ActionRow(components.Cast<object>().ToArray()) };
+        IComponent[]? comps = components is null ? null : new IComponent[] { new ActionRow(components.ToArray()) };
 
         if (_deferredUpdate)
         {
-            // After a DEFERRED_UPDATE_MESSAGE, we must edit the original via webhook
-            WebhookMessageRequest payload = new() { content = content, components = (object[]?)comps };
+            WebhookMessageRequest payload = new() { content = content, components = comps };
             return _rest.PatchWebhookOriginalAsync(ApplicationId, InteractionToken, payload, ct);
         }
 
-        InteractionResponseData data = new() { content = content, components = (object[]?)comps };
-        InteractionResponse resp = new() { type = 7, data = data }; // UPDATE_MESSAGE
+        if (_deferred)
+        {
+            WebhookMessageRequest payload = new() { content = content, components = comps };
+            return _rest.PatchWebhookMessageAsync<Entities.DiscordMessage>(ApplicationId, InteractionToken, "@original", payload, ct);
+        }
+
+        if (Interlocked.Exchange(ref _responded, 1) == 1)
+            return Task.CompletedTask;
+
+        InteractionResponseData data = new() { content = content, components = comps };
+        InteractionResponse resp = new() { type = 7, data = data };
         return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, resp, ct);
     }
 
@@ -282,7 +316,6 @@ public sealed class InteractionContext
 
         if (_deferredUpdate)
         {
-            // After a DEFERRED_UPDATE_MESSAGE, we must edit the original via webhook
             WebhookMessageRequest webhookPayload = new()
             {
                 content = payload.content,
@@ -292,13 +325,27 @@ public sealed class InteractionContext
             return _rest.PatchWebhookOriginalAsync(ApplicationId, InteractionToken, webhookPayload, ct);
         }
 
+        if (_deferred)
+        {
+            WebhookMessageRequest webhookPayload = new()
+            {
+                content = payload.content,
+                embeds = payload.embeds,
+                components = payload.components
+            };
+            return _rest.PatchWebhookMessageAsync<Entities.DiscordMessage>(ApplicationId, InteractionToken, "@original", webhookPayload, ct);
+        }
+
+        if (Interlocked.Exchange(ref _responded, 1) == 1)
+            return Task.CompletedTask;
+
         InteractionResponseData data = new()
         {
             content = payload.content,
             embeds = payload.embeds,
             components = payload.components
         };
-        InteractionResponse resp = new() { type = 7, data = data }; // UPDATE_MESSAGE
+        InteractionResponse resp = new() { type = 7, data = data };
         return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, resp, ct);
     }
 
@@ -323,12 +370,11 @@ public sealed class InteractionContext
     /// This must be the initial response. Do not defer before opening a modal.
     /// Example: await ctx.OpenModalAsync("modal_id", "Form Title", new ActionRow(new TextInput("input_id", "Label")));
     /// </summary>
-    public Task OpenModalAsync(string customId, string title, params object[] actionRows)
+    public Task OpenModalAsync(string customId, string title, CancellationToken ct = default, params IComponent[] actionRows)
     {
-        if (_deferred || _deferredUpdate)
-        {
-            throw new InvalidOperationException("Cannot open a modal after the interaction has been deferred. Do not apply [Defer] to this handler and avoid calling ctx.DeferResponseAsync before opening the modal.");
-        }
+        if (Interlocked.Exchange(ref _responded, 1) == 1)
+            throw new InvalidOperationException("Cannot open a modal after the interaction has already been acknowledged. Do not apply [Defer] to this handler and avoid calling ctx.DeferResponseAsync or ctx.RespondAsync before opening the modal.");
+
         OpenModalRequest modal = new()
         {
             type = 9,
@@ -339,7 +385,7 @@ public sealed class InteractionContext
                 components = actionRows
             }
         };
-        return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, modal, CancellationToken.None);
+        return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, modal, ct);
     }
 
     /// <summary>
@@ -379,8 +425,7 @@ public sealed class InteractionContext
     /// </summary>
     public string? GetOption(string optionName)
     {
-        InteractionOption? opt = Command?.Options?.FirstOrDefault(o => o.Name.Equals(optionName, StringComparison.OrdinalIgnoreCase));
-        return opt?.String;
+        return GetOptionsCache().TryGetValue(optionName, out InteractionOption? opt) ? opt.String : null;
     }
 
     /// <summary>
@@ -390,8 +435,7 @@ public sealed class InteractionContext
     /// </summary>
     public long? GetOptionInt(string optionName)
     {
-        InteractionOption? opt = Command?.Options?.FirstOrDefault(o => o.Name.Equals(optionName, StringComparison.OrdinalIgnoreCase));
-        return opt?.Integer;
+        return GetOptionsCache().TryGetValue(optionName, out InteractionOption? opt) ? opt.Integer : null;
     }
 
     /// <summary>
@@ -401,8 +445,7 @@ public sealed class InteractionContext
     /// </summary>
     public bool? GetOptionBool(string optionName)
     {
-        InteractionOption? opt = Command?.Options?.FirstOrDefault(o => o.Name.Equals(optionName, StringComparison.OrdinalIgnoreCase));
-        return opt?.Boolean;
+        return GetOptionsCache().TryGetValue(optionName, out InteractionOption? opt) ? opt.Boolean : null;
     }
 
     /// <summary>
@@ -456,7 +499,7 @@ public sealed class InteractionContext
     /// </summary>
     public IEnumerable<Entities.DiscordUser> GetResolvedUsers()
     {
-        if (Component?.Resolved?.Users == null) return [];
+        if (Component?.Resolved?.Users == null) return Array.Empty<Entities.DiscordUser>();
         return Component.Resolved.Users.Values;
     }
 
@@ -467,7 +510,7 @@ public sealed class InteractionContext
     /// </summary>
     public IEnumerable<Entities.DiscordMember> GetResolvedMembers()
     {
-        if (Component?.Resolved?.Members == null) return [];
+        if (Component?.Resolved?.Members == null) return Array.Empty<Entities.DiscordMember>();
         return Component.Resolved.Members.Values;
     }
 
@@ -478,7 +521,7 @@ public sealed class InteractionContext
     /// </summary>
     public IEnumerable<Entities.DiscordRole> GetResolvedRoles()
     {
-        if (Component?.Resolved?.Roles == null) return [];
+        if (Component?.Resolved?.Roles == null) return Array.Empty<Entities.DiscordRole>();
         return Component.Resolved.Roles.Values;
     }
 
@@ -489,7 +532,7 @@ public sealed class InteractionContext
     /// </summary>
     public IEnumerable<Entities.DiscordChannel> GetResolvedChannels()
     {
-        if (Component?.Resolved?.Channels == null) return [];
+        if (Component?.Resolved?.Channels == null) return Array.Empty<Entities.DiscordChannel>();
         return Component.Resolved.Channels.Values;
     }
 
@@ -559,4 +602,19 @@ public sealed class InteractionContext
     /// Example: if (ctx.IsButton()) { }
     /// </summary>
     public bool IsButton() => Component?.ComponentType == 2;
+
+    private Dictionary<string, InteractionOption> GetOptionsCache()
+    {
+        if (_optionsCache is not null)
+            return _optionsCache;
+
+        Dictionary<string, InteractionOption> dict = new(StringComparer.OrdinalIgnoreCase);
+        if (Command?.Options is { } options)
+        {
+            foreach (InteractionOption opt in options)
+                dict[opt.Name] = opt;
+        }
+        _optionsCache = dict;
+        return dict;
+    }
 }

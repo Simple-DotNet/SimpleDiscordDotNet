@@ -6,12 +6,13 @@ internal sealed partial class GatewayClient
 {
     private async Task ConnectSocketAsync(CancellationToken ct)
     {
+        try { _ws.Dispose(); } catch { /* WebSocket disposal can throw, safe to ignore */ }
         _ws = new ClientWebSocket();
         _ws.Options.SetRequestHeader("User-Agent", "SimpleDiscordDotNet (https://example, 1.0)");
         await _ws.ConnectAsync(new Uri("wss://gateway.discord.gg/?v=10&encoding=json"), ct).ConfigureAwait(false);
         _reconnectAttempt = 0;
         _awaitingHeartbeatAck = false;
-        _missedHeartbeatAcks = 0;
+        Interlocked.Exchange(ref _missedHeartbeatAcks, 0);
     }
 
     private int GetBackoffDelayMs()
@@ -22,12 +23,15 @@ internal sealed partial class GatewayClient
         return baseMs + jitter;
     }
 
-    private async Task SafeReconnectAsync(CancellationToken ct)
+    private async Task<bool> SafeReconnectAsync(CancellationToken ct)
     {
-        if (Interlocked.Exchange(ref _reconnecting, 1) == 1) return;
+        if (!await _reconnectGate.WaitAsync(0, ct).ConfigureAwait(false)) return false;
         try
         {
-            try { _heartbeatTimer?.Dispose(); } catch { /* Timer disposal can throw, safe to ignore */ }
+            lock (_heartbeatLock)
+            {
+                try { _ctsHeartbeat?.Cancel(); } catch { /* Cancellation may throw, safe to ignore */ }
+            }
             try
             {
                 if (_ws.State is WebSocketState.Open or WebSocketState.CloseReceived)
@@ -43,10 +47,11 @@ internal sealed partial class GatewayClient
             await Task.Delay(delay, ct).ConfigureAwait(false);
 
             await ConnectSocketAsync(ct).ConfigureAwait(false);
+            return true;
         }
         finally
         {
-            Interlocked.Exchange(ref _reconnecting, 0);
+            _reconnectGate.Release();
         }
     }
 }
