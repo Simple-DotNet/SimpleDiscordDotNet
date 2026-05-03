@@ -31,8 +31,22 @@ internal sealed class ComponentService
             return;
 
         // Prefer generated delegate-based handler when available
-        ComponentHandler? gmatch = _generated.FirstOrDefault(h => (!h.Prefix && string.Equals(h.Id, customId, StringComparison.Ordinal))
-                                                               || (h.Prefix && customId.StartsWith(h.Id, StringComparison.Ordinal)));
+        // For prefix matches, prefer longest match to avoid ambiguity
+        ComponentHandler? gmatch = null;
+        int bestLength = -1;
+        foreach (ComponentHandler h in _generated)
+        {
+            if (!h.Prefix && string.Equals(h.Id, customId, StringComparison.Ordinal))
+            {
+                gmatch = h;
+                break;
+            }
+            if (h.Prefix && customId.StartsWith(h.Id, StringComparison.Ordinal) && h.Id.Length > bestLength)
+            {
+                gmatch = h;
+                bestLength = h.Id.Length;
+            }
+        }
         if (gmatch is not null)
         {
             InteractionContext? ctx = null;

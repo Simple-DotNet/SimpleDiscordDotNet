@@ -12,6 +12,7 @@ internal sealed class PeerNode
     private long _lastHeartbeat;
     private readonly object _heartbeatLock = new();
     private volatile WorkerMetrics? _latestMetrics;
+    internal readonly object ShardsLock = new();
 
     public string ProcessId { get; }
     public string Url { get; }
@@ -77,12 +78,26 @@ internal sealed class PeerNode
     /// </summary>
     public WorkerMetrics? LatestMetrics => _latestMetrics;
 
+    public int[] GetShardsSnapshot()
+    {
+        lock (ShardsLock)
+        {
+            return AssignedShards.ToArray();
+        }
+    }
+
     /// <summary>
     /// Converts this peer to a PeerNodeState for serialization.
     /// Example: var state = peer.ToState();
     /// </summary>
     public PeerNodeState ToState()
     {
+        List<int> shards;
+        lock (ShardsLock)
+        {
+            shards = AssignedShards.ToList();
+        }
+
         long lastHeartbeat;
         lock (_heartbeatLock)
         {
@@ -92,7 +107,7 @@ internal sealed class PeerNode
         return new PeerNodeState(
             ProcessId: ProcessId,
             Url: Url,
-            Shards: AssignedShards.ToList(),
+            Shards: shards,
             MaxShards: MaxShards,
             LastHeartbeat: lastHeartbeat,
             Metrics: _latestMetrics
@@ -112,7 +127,10 @@ internal sealed class PeerNode
         }
         peer._latestMetrics = state.Metrics;
         peer.MaxShards = state.MaxShards;
-        peer.AssignedShards.AddRange(state.Shards);
+        lock (peer.ShardsLock)
+        {
+            peer.AssignedShards.AddRange(state.Shards);
+        }
         return peer;
     }
 }

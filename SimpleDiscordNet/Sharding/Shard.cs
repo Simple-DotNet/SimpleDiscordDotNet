@@ -25,10 +25,15 @@ internal sealed class Shard : IDisposable
     private volatile int _latency;
     private volatile int _eventsPerSecond;
     private volatile int _commandsPerSecond;
+    private volatile bool _disposed;
 
     private readonly Stopwatch _eventCounter = Stopwatch.StartNew();
     private int _eventCount;
     private int _commandCount;
+
+    private EventHandler? _onConnected;
+    private EventHandler<Exception?>? _onDisconnected;
+    private CancellationTokenSource? _metricsCts;
 
     /// <summary>
     /// Creates a new shard wrapper.
@@ -154,24 +159,38 @@ internal sealed class Shard : IDisposable
 
     private void WireEvents()
     {
-        _gateway.Connected += (_, _) =>
+        _onConnected = (_, _) =>
         {
             _status = ShardStatus.Connected;
             _logger.Log(LogLevel.Information, $"Shard {_shardId}/{_totalShards}: Connected");
         };
+        _gateway.Connected += _onConnected;
 
-        _gateway.Disconnected += (_, ex) =>
+        _onDisconnected = (_, ex) =>
         {
             _status = ex == null ? ShardStatus.Disconnected : ShardStatus.Reconnecting;
             _logger.Log(LogLevel.Warning, $"Shard {_shardId}/{_totalShards}: Disconnected", ex);
         };
+        _gateway.Disconnected += _onDisconnected;
 
-        // Update metrics every second
+        _metricsCts = new CancellationTokenSource();
+        CancellationToken ct = _metricsCts.Token;
         _ = Task.Run(async () =>
         {
-            while (_status != ShardStatus.Disconnected && _status != ShardStatus.Failed)
+            while (!ct.IsCancellationRequested)
             {
-                await Task.Delay(1000).ConfigureAwait(false);
+                ShardStatus status = _status;
+                if (status == ShardStatus.Disconnected || status == ShardStatus.Failed)
+                    break;
+
+                try
+                {
+                    await Task.Delay(1000, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
 
                 if (_eventCounter.ElapsedMilliseconds >= 1000)
                 {
@@ -180,11 +199,20 @@ internal sealed class Shard : IDisposable
                     _eventCounter.Restart();
                 }
             }
-        });
+        }, ct);
     }
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
+        _metricsCts?.Cancel();
+        if (_onConnected != null)
+            _gateway.Connected -= _onConnected;
+        if (_onDisconnected != null)
+            _gateway.Disconnected -= _onDisconnected;
+        _metricsCts?.Dispose();
         _gateway?.Dispose();
         _guilds.Clear();
     }

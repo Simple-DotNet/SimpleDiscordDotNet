@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace SimpleDiscordNet.Entities;
 
 /// <summary>
@@ -13,16 +15,16 @@ public sealed record DiscordAuditLog
     public DiscordUser[]? users { get; init; }
 
     /// <summary>List of webhooks found in the audit log</summary>
-    public object[]? webhooks { get; init; }
+    public JsonElement[]? webhooks { get; init; }
 
     /// <summary>List of guild scheduled events found in the audit log</summary>
-    public object[]? guild_scheduled_events { get; init; }
+    public JsonElement[]? guild_scheduled_events { get; init; }
 
     /// <summary>List of threads found in the audit log</summary>
     public DiscordChannel[]? threads { get; init; }
 
     /// <summary>List of integrations found in the audit log</summary>
-    public object[]? integrations { get; init; }
+    public JsonElement[]? integrations { get; init; }
 }
 
 /// <summary>
@@ -59,10 +61,10 @@ public sealed record DiscordAuditLogEntry
 public sealed record AuditLogChange
 {
     /// <summary>New value of the key</summary>
-    public object? new_value { get; init; }
+    public JsonElement? new_value { get; init; }
 
     /// <summary>Old value of the key</summary>
-    public object? old_value { get; init; }
+    public JsonElement? old_value { get; init; }
 
     /// <summary>Name of audit log change key</summary>
     public required string key { get; init; }

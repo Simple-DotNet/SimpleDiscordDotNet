@@ -8,37 +8,55 @@ internal sealed partial class GatewayClient
 {
     private void StartHeartbeat()
     {
-        _heartbeatTimer?.Dispose();
-        _heartbeatTimer = new Timer(HeartbeatCallback, null, _heartbeatIntervalMs, _heartbeatIntervalMs);
+        lock (_heartbeatLock)
+        {
+            if (_ctsHeartbeat != null)
+            {
+                try { _ctsHeartbeat.Cancel(); } catch { /* ignored */ }
+                try { _ctsHeartbeat.Dispose(); } catch { /* ignored */ }
+            }
+            _ctsHeartbeat = new CancellationTokenSource();
+            _ = HeartbeatLoopAsync(_ctsHeartbeat.Token);
+        }
     }
 
-    private async void HeartbeatCallback(object? _)
+    private async Task HeartbeatLoopAsync(CancellationToken ct)
     {
-        try
+        while (!ct.IsCancellationRequested)
         {
-            if (_ws.State != WebSocketState.Open) return;
-            // detect missed ack from the previous heartbeat
-            if (_awaitingHeartbeatAck)
+            try
             {
-                _missedHeartbeatAcks++;
-                if (_missedHeartbeatAcks >= 2 && _autoReconnect)
-                {
-                    await SafeReconnectAsync(_internalCts.Token).ConfigureAwait(false);
-                    return;
-                }
+                await Task.Delay(_heartbeatIntervalMs, ct).ConfigureAwait(false);
+                await SendHeartbeatAsync(ct).ConfigureAwait(false);
             }
-            Heartbeat hb = new() { d = _seq };
-            ArrayBufferWriter<byte> buffer = new();
-            using (Utf8JsonWriter writer = new(buffer))
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex)
             {
-                JsonSerializer.Serialize(writer, hb, json);
+                Error?.Invoke(this, ex);
+                try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
             }
-            await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
-            _awaitingHeartbeatAck = true;
         }
-        catch (Exception ex)
+    }
+
+    private async Task SendHeartbeatAsync(CancellationToken ct)
+    {
+        if (_ws.State != WebSocketState.Open) return;
+        if (_awaitingHeartbeatAck)
         {
-            Error?.Invoke(this, ex);
+            int missed = Interlocked.Increment(ref _missedHeartbeatAcks);
+            if (missed >= 2 && _autoReconnect)
+            {
+                await SafeReconnectAsync(ct).ConfigureAwait(false);
+                return;
+            }
         }
+        Heartbeat hb = new() { d = Interlocked.Read(ref _seq) };
+        ArrayBufferWriter<byte> buffer = new();
+        using (Utf8JsonWriter writer = new(buffer))
+        {
+            JsonSerializer.Serialize(writer, hb, json);
+        }
+        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        _awaitingHeartbeatAck = true;
     }
 }

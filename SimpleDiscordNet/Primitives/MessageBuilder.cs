@@ -244,11 +244,11 @@ public sealed class MessageBuilder
                 embedList.Add(e.Build());
         }
 
-        object[]? components = null;
+        IComponent[]? components = null;
         if (_components is not null && _components.Count > 0)
         {
-            List<object> rows = new();
-            List<object> nonActionRowComponents = new();
+            List<IComponent> rows = [];
+            List<IComponent> nonActionRowComponents = [];
             foreach (IComponent component in _components)
             {
                 if (component is ActionRow row)
@@ -273,12 +273,12 @@ public sealed class MessageBuilder
             components = rows.ToArray();
         }
 
-        object[]? attachments = null;
+        AttachmentReference[]? attachments = null;
         if (_files is not null && _files.Count > 0)
         {
-            attachments = new object[_files.Count];
+            attachments = new AttachmentReference[_files.Count];
             for (int i = 0; i < _files.Count; i++)
-                attachments[i] = new { id = i, filename = _files[i].fileName };
+                attachments[i] = new AttachmentReference(i, _files[i].fileName);
         }
 
         return new MessagePayload

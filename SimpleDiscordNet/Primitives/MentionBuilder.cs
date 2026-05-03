@@ -100,14 +100,14 @@ public sealed class MentionBuilder
     public string BuildMentionString() => string.Join(" ", _mentions);
 
     /// <summary>Builds the allowed_mentions object for Discord API.</summary>
-    internal object BuildAllowedMentions()
+    internal AllowedMentionsPayload BuildAllowedMentions()
     {
         List<string> parse = [];
         if (_allowEveryone) parse.Add("everyone");
         if (_allowRoles) parse.Add("roles");
         if (_allowUsers) parse.Add("users");
 
-        return new { parse = parse.ToArray() };
+        return new AllowedMentionsPayload(parse.ToArray());
     }
 
     /// <summary>Creates a builder that mentions everyone.</summary>
@@ -130,4 +130,10 @@ public sealed class MentionBuilder
 
     /// <summary>Creates a builder that mentions a role.</summary>
     public static MentionBuilder Role(string roleId) => new MentionBuilder().AddRole(roleId);
+}
+
+public sealed class AllowedMentionsPayload
+{
+    public string[] parse { get; }
+    public AllowedMentionsPayload(string[] parse) { this.parse = parse; }
 }

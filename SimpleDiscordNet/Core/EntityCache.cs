@@ -12,10 +12,15 @@ namespace SimpleDiscordNet.Core;
 /// </summary>
 internal sealed class EntityCache
 {
+    private const int MaxUsers = 100000;
+
     private readonly ObservableConcurrentDictionary<ulong, DiscordGuild> _guilds;
     private readonly ConcurrentDictionary<ulong, ObservableConcurrentList<DiscordChannel>> _channelsByGuild = new();
     private readonly ConcurrentDictionary<ulong, ObservableConcurrentList<DiscordMember>> _membersByGuild = new();
     private readonly ConcurrentDictionary<ulong, DiscordUser> _users = new();
+    private readonly ConcurrentQueue<ulong> _userAccessOrder = new();
+    private readonly ConcurrentDictionary<ulong, DiscordChannel> _channelsById = new();
+    private readonly ConcurrentDictionary<ulong, DiscordRole> _rolesById = new();
     private SynchronizationContext? _synchronizationContext;
 
     public EntityCache()
@@ -102,9 +107,26 @@ internal sealed class EntityCache
         if (!_guilds.TryGetValue(guildId, out DiscordGuild? guild))
         {
             // Guild not in cache yet - store channels as-is (Guild will be set later via UpsertChannel)
-            var list = new ObservableConcurrentList<DiscordChannel>(_synchronizationContext);
-            list.AddRange(channels);
-            _channelsByGuild[guildId] = list;
+            _channelsByGuild.AddOrUpdate(guildId,
+                _ =>
+                {
+                    var list = new ObservableConcurrentList<DiscordChannel>(_synchronizationContext);
+                    list.AddRange(channels);
+                    foreach (DiscordChannel channel in channels)
+                    {
+                        _channelsById[channel.Id] = channel;
+                    }
+                    return list;
+                },
+                (_, existing) =>
+                {
+                    existing.ReplaceAll(channels);
+                    foreach (DiscordChannel channel in channels)
+                    {
+                        _channelsById[channel.Id] = channel;
+                    }
+                    return existing;
+                });
             return;
         }
 
@@ -125,10 +147,27 @@ internal sealed class EntityCache
             }
         }
 
-        // Use batch operation to avoid multiple notifications
-        var observableList = new ObservableConcurrentList<DiscordChannel>(_synchronizationContext);
-        observableList.AddRange(channelList);
-        _channelsByGuild[guildId] = observableList;
+        // Use AddOrUpdate to preserve existing list object for UI bindings
+        _channelsByGuild.AddOrUpdate(guildId,
+            _ =>
+            {
+                var list = new ObservableConcurrentList<DiscordChannel>(_synchronizationContext);
+                list.AddRange(channelList);
+                foreach (DiscordChannel channel in channelList)
+                {
+                    _channelsById[channel.Id] = channel;
+                }
+                return list;
+            },
+            (_, existing) =>
+            {
+                existing.ReplaceAll(channelList);
+                foreach (DiscordChannel channel in channelList)
+                {
+                    _channelsById[channel.Id] = channel;
+                }
+                return existing;
+            });
     }
 
     public void SetMembers(ulong guildId, IEnumerable<DiscordMember> members)
@@ -139,6 +178,10 @@ internal sealed class EntityCache
             var list = new ObservableConcurrentList<DiscordMember>(_synchronizationContext);
             list.AddRange(members);
             _membersByGuild[guildId] = list;
+            foreach (DiscordMember member in members)
+            {
+                RecordUserAccess(member.User.Id);
+            }
             return;
         }
 
@@ -146,7 +189,7 @@ internal sealed class EntityCache
         List<DiscordMember> memberList = [];
         foreach (DiscordMember member in members)
         {
-            if (member.Guild.Id == guildId)
+            if (member.Guild?.Id == guildId)
             {
                 // Guild already set correctly
                 memberList.Add(member);
@@ -174,10 +217,23 @@ internal sealed class EntityCache
             }
         }
 
-        // Use batch operation to avoid multiple notifications
-        var observableList = new ObservableConcurrentList<DiscordMember>(_synchronizationContext);
-        observableList.AddRange(memberList);
-        _membersByGuild[guildId] = observableList;
+        // Use AddOrUpdate to preserve existing list object for UI bindings
+        _membersByGuild.AddOrUpdate(guildId,
+            _ =>
+            {
+                var list = new ObservableConcurrentList<DiscordMember>(_synchronizationContext);
+                list.AddRange(memberList);
+                foreach (DiscordMember member in memberList)
+                {
+                    RecordUserAccess(member.User.Id);
+                }
+                return list;
+            },
+            (_, existing) =>
+            {
+                existing.ReplaceAll(memberList);
+                return existing;
+            });
     }
 
     public IReadOnlyList<DiscordGuild> SnapshotGuilds() => _guilds.Values.OrderBy(g => g.Id).ToArray();
@@ -216,14 +272,19 @@ internal sealed class EntityCache
 
     public IReadOnlyList<DiscordUser> SnapshotUsers()
     {
-        // Build mapping of user ID to guilds they're in
+        Dictionary<ulong, DiscordUser> distinctUsers = new();
         Dictionary<ulong, List<DiscordGuild>> userGuilds = new();
+
         foreach ((ulong gid, DiscordGuild guild) in _guilds)
         {
             if (!_membersByGuild.TryGetValue(gid, out ObservableConcurrentList<DiscordMember>? members)) continue;
             var memberSnapshot = members.ToArray();
             foreach (DiscordMember member in memberSnapshot)
             {
+                if (!distinctUsers.ContainsKey(member.User.Id))
+                {
+                    distinctUsers[member.User.Id] = member.User;
+                }
                 if (!userGuilds.TryGetValue(member.User.Id, out List<DiscordGuild>? guilds))
                 {
                     guilds = new List<DiscordGuild>();
@@ -233,20 +294,12 @@ internal sealed class EntityCache
             }
         }
 
-        // Update each user's Guilds array and collect distinct users
-        Dictionary<ulong, DiscordUser> distinctUsers = new();
+        // Update each user's Guilds array
         foreach ((ulong userId, List<DiscordGuild> guilds) in userGuilds)
         {
-            // Find the user from any member (they all have the same User object reference potentially)
-            foreach (ObservableConcurrentList<DiscordMember> members in _membersByGuild.Values)
+            if (distinctUsers.TryGetValue(userId, out DiscordUser? user))
             {
-                DiscordMember? member = members.FirstOrDefault(m => m.User.Id == userId);
-                if (member != null)
-                {
-                    member.User.Guilds = guilds.ToArray();
-                    distinctUsers[userId] = member.User;
-                    break;
-                }
+                user.Guilds = guilds.ToArray();
             }
         }
 
@@ -269,9 +322,12 @@ internal sealed class EntityCache
         List<DiscordRole> list = new(1024);
         foreach ((ulong gid, DiscordGuild guild) in _guilds)
         {
-            if (guild.Roles == null) continue;
-            list.EnsureCapacity(list.Count + guild.Roles.Length);
-            foreach (var role in guild.Roles)
+            DiscordRole[]? roles;
+            lock (guild)
+                roles = guild.Roles;
+            if (roles == null) continue;
+            list.EnsureCapacity(list.Count + roles.Length);
+            foreach (var role in roles)
             {
                 list.Add(role);
             }
@@ -351,9 +407,12 @@ internal sealed class EntityCache
             if (ShardCalculator.CalculateShardId(gid.ToString(CultureInfo.InvariantCulture).AsSpan(), totalShards) != shardId)
                 continue;
 
-            if (guild.Roles == null) continue;
-            list.EnsureCapacity(list.Count + guild.Roles.Length);
-            foreach (DiscordRole role in guild.Roles)
+            DiscordRole[]? roles;
+            lock (guild)
+                roles = guild.Roles;
+            if (roles == null) continue;
+            list.EnsureCapacity(list.Count + roles.Length);
+            foreach (DiscordRole role in roles)
             {
                 list.Add(role);
             }
@@ -370,9 +429,30 @@ internal sealed class EntityCache
 
     public void RemoveGuild(ulong guildId)
     {
-        _guilds.TryRemove(guildId, out _);
-        _channelsByGuild.TryRemove(guildId, out _);
+        _guilds.TryRemove(guildId, out var guild);
+        _channelsByGuild.TryRemove(guildId, out var oldChannels);
         _membersByGuild.TryRemove(guildId, out _);
+
+        if (oldChannels != null)
+        {
+            foreach (var ch in oldChannels.ToArray())
+            {
+                _channelsById.TryRemove(ch.Id, out _);
+            }
+        }
+        DiscordRole[]? roles;
+        if (guild != null)
+        {
+            lock (guild)
+                roles = guild.Roles;
+            if (roles != null)
+            {
+                foreach (var role in roles)
+                {
+                    _rolesById.TryRemove(role.Id, out _);
+                }
+            }
+        }
     }
 
     public void UpsertChannel(ulong guildId, DiscordChannel channel)
@@ -385,27 +465,26 @@ internal sealed class EntityCache
 
         ObservableConcurrentList<DiscordChannel> list = _channelsByGuild.GetOrAdd(guildId, _ => new ObservableConcurrentList<DiscordChannel>(_synchronizationContext));
 
-        // Update existing or add new
-        if (!list.Update(c => c.Id == channel.Id, channel))
-        {
-            list.Add(channel);
-        }
+        // Atomic add-or-update under a single write lock
+        list.AddOrUpdate(c => c.Id == channel.Id, channel);
+
+        _channelsById[channel.Id] = channel;
     }
 
     public void RemoveChannel(ulong guildId, ulong channelId)
     {
         if (_channelsByGuild.TryGetValue(guildId, out ObservableConcurrentList<DiscordChannel>? list))
         {
-            int idx = list.FindIndex(c => c.Id == channelId);
-            if (idx >= 0) list.RemoveAt(idx);
+            list.Remove(c => c.Id == channelId);
         }
+        _channelsById.TryRemove(channelId, out _);
     }
 
     public void UpsertMember(ulong guildId, DiscordMember member)
     {
         // Ensure member has Guild property set
         DiscordMember memberWithGuild = member;
-        if (member.Guild.Id != guildId && _guilds.TryGetValue(guildId, out DiscordGuild guild))
+        if (member.Guild?.Id != guildId && _guilds.TryGetValue(guildId, out DiscordGuild guild))
         {
             // Need to set Guild property - create new instance
             memberWithGuild = new()
@@ -426,21 +505,18 @@ internal sealed class EntityCache
             };
         }
         _users[memberWithGuild.User.Id] = memberWithGuild.User;
+        RecordUserAccess(memberWithGuild.User.Id);
 
         ObservableConcurrentList<DiscordMember> list = _membersByGuild.GetOrAdd(guildId, _ => new ObservableConcurrentList<DiscordMember>(_synchronizationContext));
 
-        // Update existing or add new
-        if (!list.Update(m => m.User.Id == memberWithGuild.User.Id, memberWithGuild))
-        {
-            list.Add(memberWithGuild);
-        }
+        // Atomic add-or-update under a single write lock
+        list.AddOrUpdate(m => m.User.Id == memberWithGuild.User.Id, memberWithGuild);
     }
 
     public void RemoveMember(ulong guildId, ulong userId)
     {
         if (!_membersByGuild.TryGetValue(guildId, out ObservableConcurrentList<DiscordMember>? list)) return;
-        int idx = list.FindIndex(m => m.User.Id == userId);
-        if (idx >= 0) list.RemoveAt(idx);
+        list.Remove(m => m.User.Id == userId);
     }
 
     public void UpsertRole(ulong guildId, DiscordRole role)
@@ -463,27 +539,32 @@ internal sealed class EntityCache
             };
         }
 
-        DiscordRole[] currentRoles = guild.Roles ?? [];
-        int idx = Array.FindIndex(currentRoles, r => r.Id == roleWithGuild.Id);
-
-        DiscordRole[] newRoles;
-        if (idx >= 0)
+        lock (guild)
         {
-            // Update existing role
-            newRoles = new DiscordRole[currentRoles.Length];
-            currentRoles.AsSpan().CopyTo(newRoles.AsSpan());
-            newRoles[idx] = roleWithGuild;
-        }
-        else
-        {
-            // Add new role
-            newRoles = new DiscordRole[currentRoles.Length + 1];
-            currentRoles.AsSpan().CopyTo(newRoles.AsSpan());
-            newRoles[^1] = roleWithGuild;
+            DiscordRole[] currentRoles = guild.Roles ?? [];
+            int idx = Array.FindIndex(currentRoles, r => r.Id == roleWithGuild.Id);
+
+            DiscordRole[] newRoles;
+            if (idx >= 0)
+            {
+                // Update existing role
+                newRoles = new DiscordRole[currentRoles.Length];
+                currentRoles.AsSpan().CopyTo(newRoles.AsSpan());
+                newRoles[idx] = roleWithGuild;
+            }
+            else
+            {
+                // Add new role
+                newRoles = new DiscordRole[currentRoles.Length + 1];
+                currentRoles.AsSpan().CopyTo(newRoles.AsSpan());
+                newRoles[^1] = roleWithGuild;
+            }
+
+            // Update guild with new roles array
+            guild.Roles = newRoles;
         }
 
-        // Update guild with new roles array
-        guild.Roles = newRoles;
+        _rolesById[roleWithGuild.Id] = roleWithGuild;
     }
 
     public void UpsertUser(DiscordUser user)
@@ -498,22 +579,30 @@ internal sealed class EntityCache
             }
         }
         _users[user.Id] = user;
+        RecordUserAccess(user.Id);
     }
 
     public void RemoveRole(ulong guildId, ulong roleId)
     {
-        if (!_guilds.TryGetValue(guildId, out DiscordGuild guild) || guild.Roles is null) return;
-        DiscordRole[] currentRoles = guild.Roles;
-        int idx = Array.FindIndex(currentRoles, r => r.Id == roleId);
+        if (!_guilds.TryGetValue(guildId, out DiscordGuild guild)) return;
 
-        if (idx < 0) return;
-        DiscordRole[] newRoles = new DiscordRole[currentRoles.Length - 1];
-        if (idx > 0)
-            currentRoles.AsSpan(0, idx).CopyTo(newRoles.AsSpan());
-        if (idx < currentRoles.Length - 1)
-            currentRoles.AsSpan(idx + 1).CopyTo(newRoles.AsSpan(idx));
+        lock (guild)
+        {
+            if (guild.Roles is null) return;
+            DiscordRole[] currentRoles = guild.Roles;
+            int idx = Array.FindIndex(currentRoles, r => r.Id == roleId);
 
-        guild.Roles = newRoles;
+            if (idx < 0) return;
+            DiscordRole[] newRoles = new DiscordRole[currentRoles.Length - 1];
+            if (idx > 0)
+                currentRoles.AsSpan(0, idx).CopyTo(newRoles.AsSpan());
+            if (idx < currentRoles.Length - 1)
+                currentRoles.AsSpan(idx + 1).CopyTo(newRoles.AsSpan(idx));
+
+            guild.Roles = newRoles;
+        }
+
+        _rolesById.TryRemove(roleId, out _);
     }
 
     public void SetEmojis(ulong guildId, DiscordEmoji[] emojis)
@@ -528,7 +617,10 @@ internal sealed class EntityCache
     public bool TryGetUser(ulong userId, out DiscordUser user)
     {
         if (_users.TryGetValue(userId, out user!))
+        {
+            RecordUserAccess(userId);
             return true;
+        }
 
         foreach (ObservableConcurrentList<DiscordMember> members in _membersByGuild.Values)
         {
@@ -537,6 +629,7 @@ internal sealed class EntityCache
             user = member.User;
             // Store in users cache for future lookups
             _users[userId] = user;
+            RecordUserAccess(userId);
             return true;
         }
         user = null!;
@@ -562,16 +655,10 @@ internal sealed class EntityCache
 
     public bool TryGetChannel(ulong channelId, out DiscordChannel channel)
     {
-        foreach (var kvp in _channelsByGuild)
+        if (_channelsById.TryGetValue(channelId, out var ch))
         {
-            foreach (var ch in kvp.Value.ToArray())
-            {
-                if (ch.Id == channelId)
-                {
-                    channel = ch;
-                    return true;
-                }
-            }
+            channel = ch;
+            return true;
         }
         channel = null!;
         return false;
@@ -579,20 +666,53 @@ internal sealed class EntityCache
 
     public bool TryGetRole(ulong roleId, out DiscordRole role)
     {
-        foreach (var kvp in _guilds)
+        if (_rolesById.TryGetValue(roleId, out var r))
         {
-            var guild = kvp.Value;
-            if (guild.Roles == null) continue;
-            foreach (var r in guild.Roles)
-            {
-                if (r.Id == roleId)
-                {
-                    role = r;
-                    return true;
-                }
-            }
+            role = r;
+            return true;
         }
         role = null!;
         return false;
+    }
+
+    // --- LRU eviction for user cache ---
+
+    private void RecordUserAccess(ulong userId)
+    {
+        _userAccessOrder.Enqueue(userId);
+        TrimUsersIfNeeded();
+        DrainStaleEntries();
+    }
+
+    private void DrainStaleEntries()
+    {
+        int drained = 0;
+        while (drained < 32 && _userAccessOrder.TryDequeue(out ulong userId))
+        {
+            if (_users.ContainsKey(userId))
+            {
+                _userAccessOrder.Enqueue(userId);
+                break;
+            }
+            drained++;
+        }
+    }
+
+    private void TrimUsersIfNeeded()
+    {
+        if (_users.Count <= MaxUsers)
+            return;
+
+        int excess = _users.Count - MaxUsers;
+        int removed = 0;
+        int maxAttempts = excess * 3;
+
+        while (removed < excess && maxAttempts-- > 0 && _userAccessOrder.TryDequeue(out ulong userId))
+        {
+            if (_users.TryRemove(userId, out _))
+            {
+                removed++;
+            }
+        }
     }
 }

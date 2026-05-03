@@ -46,7 +46,7 @@ internal sealed class DistributedWorker : IDisposable
         _workerUrl = workerUrl;
         _coordinatorUrl = coordinatorUrl;
         _client = new ShardHttpClient();
-        _server = new ShardHttpServer(workerUrl);
+        _server = new ShardHttpServer(workerUrl, logger);
         _shardManager = new ShardManager(token, intents, json, logger);
         _succession = new SuccessionManager(logger);
         _metricsTimer = new Timer(SendMetrics, null, Timeout.Infinite, Timeout.Infinite);
@@ -134,7 +134,7 @@ internal sealed class DistributedWorker : IDisposable
         ShardAssignment? assignment = await _server.ReadJsonAsync<ShardAssignment>(context);
         if (assignment == null)
         {
-            await _server.RespondAsync(context, 400, new { error = "Invalid assignment" });
+            await _server.RespondAsync(context, 400, new HttpErrorResponse { error = "Invalid assignment" });
             return;
         }
 
@@ -147,12 +147,12 @@ internal sealed class DistributedWorker : IDisposable
                 _logger.Log(LogLevel.Information, $"Started new shard assignment: {shardId}/{_totalShards} - Reason: {assignment.Reason}");
             }
 
-            await _server.RespondAsync(context, 200, new { success = true });
+            await _server.RespondAsync(context, 200, new SuccessResponse { success = true });
         }
         catch (Exception ex)
         {
             _logger.Log(LogLevel.Error, $"Failed to start assigned shards: {ex.Message}", ex);
-            await _server.RespondAsync(context, 500, new { error = ex.Message });
+            await _server.RespondAsync(context, 500, new HttpErrorResponse { error = ex.Message });
         }
     }
 
@@ -161,7 +161,7 @@ internal sealed class DistributedWorker : IDisposable
         ShardMigrationRequest? migration = await _server.ReadJsonAsync<ShardMigrationRequest>(context);
         if (migration == null)
         {
-            await _server.RespondAsync(context, 400, new { error = "Invalid migration" });
+            await _server.RespondAsync(context, 400, new HttpErrorResponse { error = "Invalid migration" });
             return;
         }
 
@@ -175,12 +175,12 @@ internal sealed class DistributedWorker : IDisposable
             }
             // This worker is the target, start the shard (handled via /assignment)
 
-            await _server.RespondAsync(context, 200, new { success = true });
+            await _server.RespondAsync(context, 200, new SuccessResponse { success = true });
         }
         catch (Exception ex)
         {
             _logger.Log(LogLevel.Error, $"Failed to handle migration: {ex.Message}", ex);
-            await _server.RespondAsync(context, 500, new { error = ex.Message });
+            await _server.RespondAsync(context, 500, new HttpErrorResponse { error = ex.Message });
         }
     }
 
@@ -189,7 +189,7 @@ internal sealed class DistributedWorker : IDisposable
         SuccessionUpdate? update = await _server.ReadJsonAsync<SuccessionUpdate>(context);
         if (update == null)
         {
-            await _server.RespondAsync(context, 400, new { error = "Invalid succession update" });
+            await _server.RespondAsync(context, 400, new HttpErrorResponse { error = "Invalid succession update" });
             return;
         }
 
@@ -205,7 +205,7 @@ internal sealed class DistributedWorker : IDisposable
         CoordinatorResumedAnnouncement? announcement = await _server.ReadJsonAsync<CoordinatorResumedAnnouncement>(context);
         if (announcement == null)
         {
-            await _server.RespondAsync(context, 400, new { error = "Invalid announcement" });
+            await _server.RespondAsync(context, 400, new HttpErrorResponse { error = "Invalid announcement" });
             return;
         }
 
@@ -215,7 +215,7 @@ internal sealed class DistributedWorker : IDisposable
         _coordinatorUrl = announcement.ResumedCoordinatorUrl;
 
         // Re-register with original coordinator
-        await _server.RespondAsync(context, 200, new { success = true });
+        await _server.RespondAsync(context, 200, new SuccessResponse { success = true });
 
         _ = Task.Run(async () =>
         {
@@ -286,24 +286,31 @@ internal sealed class DistributedWorker : IDisposable
         }
     }
 
+    private static long _lastCpuTime;
+    private static long _lastWallTime;
+    private static readonly object _cpuLock = new();
+
     private static double GetCpuUsage()
     {
         try
         {
             Process process = Process.GetCurrentProcess();
-            DateTime startTime = DateTime.UtcNow;
-            TimeSpan startCpuTime = process.TotalProcessorTime;
+            long currentWallTime = Stopwatch.GetTimestamp();
+            long currentCpuTime = process.TotalProcessorTime.Ticks;
 
-            Thread.Sleep(100);
-
-            DateTime endTime = DateTime.UtcNow;
-            TimeSpan endCpuTime = process.TotalProcessorTime;
-
-            double cpuUsedMs = (endCpuTime - startCpuTime).TotalMilliseconds;
-            double totalPassedMs = (endTime - startTime).TotalMilliseconds;
-
-            double cpuUsageTotal = cpuUsedMs / (Environment.ProcessorCount * totalPassedMs);
-            return Math.Max(0, Math.Min(1, cpuUsageTotal));
+            double cpuUsage = 0;
+            lock (_cpuLock)
+            {
+                if (_lastWallTime != 0)
+                {
+                    double wallDelta = (currentWallTime - _lastWallTime) / (double)Stopwatch.Frequency;
+                    double cpuDelta = (currentCpuTime - _lastCpuTime) / (double)TimeSpan.TicksPerSecond;
+                    cpuUsage = cpuDelta / (Environment.ProcessorCount * wallDelta);
+                }
+                _lastCpuTime = currentCpuTime;
+                _lastWallTime = currentWallTime;
+            }
+            return Math.Max(0, Math.Min(1, cpuUsage));
         }
         catch
         {

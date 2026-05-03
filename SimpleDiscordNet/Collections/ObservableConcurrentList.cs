@@ -228,15 +228,16 @@ public sealed class ObservableConcurrentList<T> : INotifyCollectionChanged, INot
     /// </summary>
     public void Clear()
     {
+        BeginBatchUpdate();
         _lock.EnterWriteLock();
         try
         {
             _list.Clear();
-            OnCollectionReset();
         }
         finally
         {
             _lock.ExitWriteLock();
+            EndBatchUpdate();
         }
     }
 
@@ -275,6 +276,61 @@ public sealed class ObservableConcurrentList<T> : INotifyCollectionChanged, INot
                 T oldValue = _list[index];
                 _list[index] = newValue;
                 OnItemReplaced(oldValue, newValue, index);
+                return true;
+            }
+            return false;
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
+    }
+
+    /// <summary>
+    /// Atomically checks for existence using the predicate and either updates the existing item or adds the new item.
+    /// Returns true if an existing item was updated, false if the item was newly added.
+    /// </summary>
+    public bool AddOrUpdate(Predicate<T> match, T newItem)
+    {
+        _lock.EnterWriteLock();
+        try
+        {
+            int index = _list.FindIndex(match);
+            if (index >= 0)
+            {
+                T oldValue = _list[index];
+                _list[index] = newItem;
+                OnItemReplaced(oldValue, newItem, index);
+                return true;
+            }
+            else
+            {
+                _list.Add(newItem);
+                OnItemAdded(newItem, _list.Count - 1);
+                return false;
+            }
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
+    }
+
+    /// <summary>
+    /// Removes the first item matching the predicate atomically under a write lock.
+    /// Returns true if an item was removed, false if no match was found.
+    /// </summary>
+    public bool Remove(Predicate<T> match)
+    {
+        _lock.EnterWriteLock();
+        try
+        {
+            int index = _list.FindIndex(match);
+            if (index >= 0)
+            {
+                T removed = _list[index];
+                _list.RemoveAt(index);
+                OnItemRemoved(removed, index);
                 return true;
             }
             return false;

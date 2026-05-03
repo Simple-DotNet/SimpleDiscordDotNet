@@ -27,7 +27,7 @@ public sealed class DiscordBot : IDiscordBot
     private readonly NativeLogger _logger;
     private readonly RestClient _rest;
     private readonly GatewayClient? _gateway; // For non-sharded mode
-    private readonly ShardManager? _shardManager; // For SingleProcess sharding
+    private ShardManager? _shardManager; // For SingleProcess sharding
     private readonly ShardCoordinator? _coordinator; // For Distributed coordinator
     private readonly DistributedWorker? _worker; // For Distributed worker
     private readonly CommandPermissionService _permissionService;
@@ -37,7 +37,7 @@ public sealed class DiscordBot : IDiscordBot
     private readonly CancellationTokenSource _cts = new();
     private readonly EntityCache _cache = new();
 
-    private DiscordUser? _botUser; // Bot's own user object
+    private volatile DiscordUser? _botUser; // Bot's own user object
 
     private readonly bool _preloadGuilds;
     private readonly bool _preloadChannels;
@@ -56,10 +56,17 @@ public sealed class DiscordBot : IDiscordBot
     private readonly string? _workerListenUrl;
     private readonly string? _workerId;
 
-    private volatile bool _started;
+    private int _started;
+    private volatile int _disposedState;
 
     // Track pending member chunk requests to know when the guild is fully loaded
     private readonly ConcurrentDictionary<ulong, int> _pendingMemberChunks = new();
+
+    // Track fire-and-forget tasks for graceful shutdown
+    private readonly ConcurrentBag<Task> _fireAndForgetTasks = new();
+
+    // Stored delegate to unsubscribe from logger in DisposeAsync
+    private readonly EventHandler<LogMessage> _onLoggerLogged;
 
     private DiscordBot(
         string token,
@@ -152,6 +159,9 @@ public sealed class DiscordBot : IDiscordBot
             _cache.SetSynchronizationContext(synchronizationContext);
         }
 
+        // Store logger delegate for later unsubscription
+        _onLoggerLogged = (_, msg) => DiscordEvents.RaiseLog(this, msg);
+
         // Centralized wiring
         WireGatewayEvents();
     }
@@ -178,8 +188,7 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        if (_started) return;
-        _started = true;
+        if (Interlocked.Exchange(ref _started, 1) == 1) return;
 
         // Diagnostics: surface missing DM intent early
         if ((_intents & DiscordIntents.DirectMessages) == 0)
@@ -309,7 +318,10 @@ public sealed class DiscordBot : IDiscordBot
                 await _gateway.DisconnectAsync().ConfigureAwait(false);
 
             if (_shardManager != null)
+            {
                 _shardManager.Dispose();
+                _shardManager = null;
+            }
 
             if (_coordinator != null)
                 await _coordinator.StopAsync().ConfigureAwait(false);
@@ -447,7 +459,7 @@ public sealed class DiscordBot : IDiscordBot
         {
             content = content,
             embeds = embed is null ? null : [embed.Build()],
-            attachments = [new { id = 0, filename = fileName }]
+            attachments = [new AttachmentReference(0, fileName)]
         };
         return _rest.PostMultipartAsync<DiscordMessage>($"/channels/{channelId}/messages", payload, (fileName, data), ct);
     }
@@ -620,7 +632,7 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="ct">Cancellation token</param>
     public Task SetChannelPermissionAsync(string channelId, string targetId, int type, ulong allow, ulong deny, CancellationToken ct = default)
     {
-        var payload = new { type, allow = allow.ToString(CultureInfo.InvariantCulture), deny = deny.ToString(CultureInfo.InvariantCulture) };
+        var payload = new ChannelPermissionOverrideRequest { type = type, allow = allow.ToString(CultureInfo.InvariantCulture), deny = deny.ToString(CultureInfo.InvariantCulture) };
         return _rest.PutChannelPermissionAsync(channelId, targetId, payload, ct);
     }
 
@@ -866,7 +878,7 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="emoji">Unicode emoji or custom emoji in format "name:id"</param>
     public Task AddReactionAsync(string channelId, string messageId, string emoji, CancellationToken ct = default)
     {
-        string encoded = System.Web.HttpUtility.UrlEncode(emoji);
+        string encoded = Uri.EscapeDataString(emoji);
         return _rest.AddReactionAsync(channelId, messageId, encoded, ct);
     }
 
@@ -884,7 +896,7 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task AddReactionAsync(string channelId, string messageId, DiscordEmoji emoji, CancellationToken ct = default)
     {
-        string encoded = System.Web.HttpUtility.UrlEncode(emoji.GetReactionFormat());
+        string encoded = Uri.EscapeDataString(emoji.GetReactionFormat());
         return _rest.AddReactionAsync(channelId, messageId, encoded, ct);
     }
 
@@ -901,7 +913,7 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task RemoveOwnReactionAsync(string channelId, string messageId, string emoji, CancellationToken ct = default)
     {
-        string encoded = System.Web.HttpUtility.UrlEncode(emoji);
+        string encoded = Uri.EscapeDataString(emoji);
         return _rest.RemoveOwnReactionAsync(channelId, messageId, encoded, ct);
     }
 
@@ -918,7 +930,7 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task RemoveUserReactionAsync(string channelId, string messageId, string emoji, string userId, CancellationToken ct = default)
     {
-        string encoded = System.Web.HttpUtility.UrlEncode(emoji);
+        string encoded = Uri.EscapeDataString(emoji);
         return _rest.RemoveUserReactionAsync(channelId, messageId, encoded, userId, ct);
     }
 
@@ -936,7 +948,7 @@ public sealed class DiscordBot : IDiscordBot
     public async Task<IEnumerable<DiscordUser>> GetReactionsAsync(string channelId, string messageId, string emoji, int limit = 25, CancellationToken ct = default)
     {
         if (limit is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(limit), "Limit must be between 1 and 100");
-        string encoded = System.Web.HttpUtility.UrlEncode(emoji);
+        string encoded = Uri.EscapeDataString(emoji);
         var result = await _rest.GetReactionsAsync<DiscordUser[]>(channelId, messageId, encoded, limit, ct);
         return result ?? [];
     }
@@ -968,7 +980,7 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task RemoveAllReactionsForEmojiAsync(string channelId, string messageId, string emoji, CancellationToken ct = default)
     {
-        string encoded = System.Web.HttpUtility.UrlEncode(emoji);
+        string encoded = Uri.EscapeDataString(emoji);
         return _rest.RemoveAllReactionsForEmojiAsync(channelId, messageId, encoded, ct);
     }
 
@@ -1283,14 +1295,14 @@ public sealed class DiscordBot : IDiscordBot
     /// Sends a message with buttons to a channel.
     /// Example: await bot.SendMessageWithButtonsAsync(channelId, "Click a button:", new Button("Yes", "yes_id"), new Button("No", "no_id"));
     /// </summary>
-    public Task SendMessageWithButtonsAsync(string channelId, string content, params Button[] buttons)
+    public Task SendMessageWithButtonsAsync(string channelId, string content, CancellationToken ct = default, params Button[] buttons)
     {
         CreateMessageRequest payload = new()
         {
             content = content,
-            components = [new ActionRow(buttons.Cast<object>().ToArray())]
+            components = new IComponent[] { new ActionRow(buttons) }
         };
-        return _rest.PostAsync($"/channels/{channelId}/messages", payload, CancellationToken.None);
+        return _rest.PostAsync($"/channels/{channelId}/messages", payload, ct);
     }
 
     /// <summary>
@@ -1491,7 +1503,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     public async Task<int?> PruneMembersAsync(string guildId, int days = 7, string[]? includeRoles = null, CancellationToken ct = default)
     {
         if (days < 1 || days > 30) throw new ArgumentOutOfRangeException(nameof(days), "Days must be between 1 and 30");
-        var payload = new { days, include_roles = includeRoles };
+        var payload = new PruneMembersRequest { days = days, include_roles = includeRoles };
         return await _rest.PostGuildPruneAsync<int?>(guildId, payload, ct).ConfigureAwait(false);
     }
 
@@ -1527,7 +1539,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public async Task<DiscordChannel?> CreateWebhookAsync(string channelId, string name, string? avatarUrl = null, CancellationToken ct = default)
     {
-        var payload = new { name, avatar = avatarUrl };
+        var payload = new WebhookRequest { name = name, avatar = avatarUrl };
         return await _rest.PostChannelWebhookAsync<DiscordChannel>(channelId, payload, ct).ConfigureAwait(false);
     }
 
@@ -1555,7 +1567,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public Task ModifyWebhookAsync(string webhookId, string? name = null, string? avatarUrl = null, CancellationToken ct = default)
     {
-        var payload = new { name, avatar = avatarUrl };
+        var payload = new WebhookRequest { name = name, avatar = avatarUrl };
         return _rest.PatchWebhookAsync<object>(webhookId, payload, ct);
     }
 
@@ -1573,7 +1585,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public async Task<DiscordEmoji?> CreateEmojiAsync(string guildId, string name, string imageBase64, string[]? roles = null, CancellationToken ct = default)
     {
-        var payload = new { name, image = imageBase64, roles };
+        var payload = new CreateEmojiRequest { name = name, image = imageBase64, roles = roles };
         return await _rest.PostGuildEmojiAsync<DiscordEmoji>(guildId, payload, ct).ConfigureAwait(false);
     }
 
@@ -1582,7 +1594,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public Task<DiscordEmoji?> ModifyEmojiAsync(string guildId, string emojiId, string? name = null, string[]? roles = null, CancellationToken ct = default)
     {
-        var payload = new { name, roles };
+        var payload = new ModifyEmojiRequest { name = name, roles = roles };
         return _rest.PatchGuildEmojiAsync<DiscordEmoji>(guildId, emojiId, payload, ct);
     }
 
@@ -1608,7 +1620,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public async Task<object?> CreateStickerAsync(string guildId, string name, string description, string tags, string fileData, CancellationToken ct = default)
     {
-        var payload = new { name, description, tags, file = fileData };
+        var payload = new CreateStickerRequest { name = name, description = description, tags = tags, file = fileData };
         return await _rest.PostGuildStickerAsync<object>(guildId, payload, ct).ConfigureAwait(false);
     }
 
@@ -1617,7 +1629,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public async Task<object?> ModifyStickerAsync(string guildId, string stickerId, string? name = null, string? description = null, string? tags = null, CancellationToken ct = default)
     {
-        var payload = new { name, description, tags };
+        var payload = new ModifyStickerRequest { name = name, description = description, tags = tags };
         return await _rest.PatchGuildStickerAsync<object>(guildId, stickerId, payload, ct).ConfigureAwait(false);
     }
 
@@ -1663,7 +1675,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public async Task<object?> CreateStageInstanceAsync(string channelId, string topic, int? privacyLevel = null, CancellationToken ct = default)
     {
-        var payload = new { channel_id = channelId, topic, privacy_level = privacyLevel ?? 2 };
+        var payload = new CreateStageInstanceRequest { channel_id = channelId, topic = topic, privacy_level = privacyLevel ?? 2 };
         return await _rest.PostStageInstanceAsync<object>(payload, ct).ConfigureAwait(false);
     }
 
@@ -1672,7 +1684,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public async Task<object?> ModifyStageInstanceAsync(string channelId, string? topic = null, int? privacyLevel = null, CancellationToken ct = default)
     {
-        var payload = new { topic, privacy_level = privacyLevel };
+        var payload = new ModifyStageInstanceRequest { topic = topic, privacy_level = privacyLevel };
         return await _rest.PatchStageInstanceAsync<object>(channelId, payload, ct).ConfigureAwait(false);
     }
 
@@ -1710,7 +1722,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public async Task<object?> CreateInviteAsync(string channelId, int? maxAge = null, int? maxUses = null, bool? temporary = null, bool? unique = null, CancellationToken ct = default)
     {
-        var payload = new { max_age = maxAge, max_uses = maxUses, temporary, unique };
+        var payload = new CreateInviteRequest { max_age = maxAge, max_uses = maxUses, temporary = temporary, unique = unique };
         return await _rest.PostChannelInviteAsync<object>(channelId, payload, ct).ConfigureAwait(false);
     }
 
@@ -1740,7 +1752,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public Task<DiscordUser?> ModifyCurrentUserAsync(string? username = null, string? avatarBase64 = null, CancellationToken ct = default)
     {
-        var payload = new { username, avatar = avatarBase64 };
+        var payload = new ModifyCurrentUserRequest { username = username, avatar = avatarBase64 };
         return _rest.PatchCurrentUserAsync<DiscordUser>(payload, ct);
     }
 
@@ -1890,7 +1902,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public Task SetNicknameAsync(string guildId, string nickname, CancellationToken ct = default)
     {
-        var payload = new { nick = nickname };
+        var payload = new ModifyNicknameRequest { nick = nickname };
         return _rest.PatchAsync($"/guilds/{guildId}/members/@me", payload, ct);
     }
 
@@ -1950,7 +1962,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// Example: await bot.PinMessageAsync(channelId, messageId);
     /// </summary>
     public Task PinMessageAsync(ulong channelId, ulong messageId, CancellationToken ct = default)
-        => _rest.PutAsync($"/channels/{channelId}/pins/{messageId}", new { }, ct);
+        => _rest.PutAsync($"/channels/{channelId}/pins/{messageId}", EmptyPayload.Instance, ct);
 
     /// <summary>
     /// Deletes a message from a channel.
@@ -1981,14 +1993,30 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
         switch (enriched)
         {
             case { Type: InteractionType.ApplicationCommand, Data: not null }:
-                _ = _slashCommands.HandleAsync(enriched, _rest, _cts.Token);
+                _fireAndForgetTasks.Add(FireAndForget(() => _slashCommands.HandleAsync(enriched, _rest, _cts.Token), "slash command handler"));
                 break;
             case { Type: InteractionType.ApplicationCommandAutocomplete, Data: not null }:
-                _ = _autocomplete.HandleAsync(enriched, _rest, _cts.Token);
+                _fireAndForgetTasks.Add(FireAndForget(() => _autocomplete.HandleAsync(enriched, _rest, _cts.Token), "autocomplete handler"));
                 break;
             case { Type: InteractionType.MessageComponent, Component: not null } or { Type: InteractionType.ModalSubmit, Modal: not null }:
-                _ = _components.HandleAsync(enriched, _rest, _cts.Token);
+                _fireAndForgetTasks.Add(FireAndForget(() => _components.HandleAsync(enriched, _rest, _cts.Token), "component/modal handler"));
                 break;
+        }
+    }
+
+    private async Task FireAndForget(Func<Task> handler, string description)
+    {
+        try
+        {
+            await handler().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected during shutdown
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(LogLevel.Error, $"Unhandled exception in {description}: {ex.Message}", ex);
         }
     }
 
@@ -2282,8 +2310,8 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
 
     private void WireGatewayEvents()
     {
-        // Forward logger to static event hub
-        _logger.Logged += (_, msg) => DiscordEvents.RaiseLog(this, msg);
+        // Forward logger to static event hub (use stored delegate to allow unsubscription)
+        _logger.Logged += _onLoggerLogged;
 
         // Only wire single gateway (sharded gateways are wired in StartAsync)
         if (_gateway == null) return;
@@ -2424,9 +2452,25 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// <summary>
     /// Disposes managed resources asynchronously.
     /// </summary>
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposedState, 1) != 0) return;
+        _logger.Logged -= _onLoggerLogged;
         _cts.Cancel();
+
+        Task[] pending = _fireAndForgetTasks.ToArray();
+        if (pending.Length > 0)
+        {
+            try
+            {
+                await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best effort shutdown
+            }
+        }
+
         _gateway?.Dispose();
         _shardManager?.Dispose();
         _coordinator?.Dispose();
@@ -2434,7 +2478,6 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
         _rest.Dispose();
         _cts.Dispose();
         DiscordContext.ClearProvider();
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>
@@ -2442,7 +2485,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public void Dispose()
     {
-        _ = DisposeAsync();
+        DisposeAsync().GetAwaiter().GetResult();
     }
 
     /// <summary>
