@@ -131,7 +131,7 @@ internal sealed class RestClient : IDisposable
         }
     }
 
-    private async Task<HttpResponseMessage> SendMultipartAsync(string route, Func<MultipartFormDataContent> contentFactory, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendMultipartAsync(HttpMethod method, string route, Func<MultipartFormDataContent> contentFactory, CancellationToken ct)
     {
         int retryCount = 0;
 
@@ -140,7 +140,7 @@ internal sealed class RestClient : IDisposable
             using RateLimitHandle handle = await _rateLimiter.AcquireAsync(route, ct).ConfigureAwait(false);
 
             using MultipartFormDataContent content = contentFactory();
-            using HttpRequestMessage req = new(HttpMethod.Post, BaseUrl + route);
+            using HttpRequestMessage req = new(method, BaseUrl + route);
             req.Content = content;
 
             HttpResponseMessage res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
@@ -260,7 +260,7 @@ internal sealed class RestClient : IDisposable
 
     public async Task PostMultipartAsync(string route, object payload, (string fileName, ReadOnlyMemory<byte> data) file, CancellationToken ct)
     {
-        using HttpResponseMessage res = await SendMultipartAsync(route, () => BuildMultipartContent(payload, file), ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendMultipartAsync(HttpMethod.Post, route, () => BuildMultipartContent(payload, file), ct).ConfigureAwait(false);
 
         if (!res.IsSuccessStatusCode)
         {
@@ -272,7 +272,7 @@ internal sealed class RestClient : IDisposable
 
     public async Task<T?> PostMultipartAsync<T>(string route, object payload, (string fileName, ReadOnlyMemory<byte> data) file, CancellationToken ct)
     {
-        using HttpResponseMessage res = await SendMultipartAsync(route, () => BuildMultipartContent(payload, file), ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendMultipartAsync(HttpMethod.Post, route, () => BuildMultipartContent(payload, file), ct).ConfigureAwait(false);
 
         if (!res.IsSuccessStatusCode)
         {
@@ -286,12 +286,26 @@ internal sealed class RestClient : IDisposable
 
     public async Task<T?> PostMultipartAsync<T>(string route, object payload, List<(string fileName, ReadOnlyMemory<byte> data)> files, CancellationToken ct)
     {
-        using HttpResponseMessage res = await SendMultipartAsync(route, () => BuildMultipartContent(payload, files), ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendMultipartAsync(HttpMethod.Post, route, () => BuildMultipartContent(payload, files), ct).ConfigureAwait(false);
 
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
             _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {route}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task<T?> PatchMultipartAsync<T>(string route, object payload, List<(string fileName, ReadOnlyMemory<byte> data)> files, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendMultipartAsync(HttpMethod.Patch, route, () => BuildMultipartContent(payload, files), ct).ConfigureAwait(false);
+
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH (multipart) {route}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
         await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -342,7 +356,7 @@ internal sealed class RestClient : IDisposable
     public Task<ApplicationInfo?> GetApplicationAsync(CancellationToken ct)
         => GetAsync<ApplicationInfo>("/oauth2/applications/@me", ct);
 
-    public Task PutGuildCommandsAsync(string applicationId, string guildId, object[] commands, CancellationToken ct)
+    public Task PutGuildCommandsAsync(string applicationId, string guildId, ApplicationCommandDefinition[] commands, CancellationToken ct)
         => PutAsync($"/applications/{applicationId}/guilds/{guildId}/commands", commands, ct);
 
     public Task PostInteractionCallbackAsync(string interactionId, string token, object response, CancellationToken ct)
@@ -874,7 +888,7 @@ internal sealed class RestClient : IDisposable
 
     // ---- Global commands ----
 
-    public Task PutGlobalCommandsAsync(string applicationId, object[] commands, CancellationToken ct)
+    public Task PutGlobalCommandsAsync(string applicationId, ApplicationCommandDefinition[] commands, CancellationToken ct)
         => PutAsync($"/applications/{applicationId}/commands", commands, ct);
 
     // ---- Guild management ----

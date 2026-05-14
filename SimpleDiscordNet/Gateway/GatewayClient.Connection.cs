@@ -6,10 +6,12 @@ internal sealed partial class GatewayClient
 {
     private async Task ConnectSocketAsync(CancellationToken ct)
     {
-        try { _ws.Dispose(); } catch { /* WebSocket disposal can throw, safe to ignore */ }
-        _ws = new ClientWebSocket();
-        _ws.Options.SetRequestHeader("User-Agent", "SimpleDiscordDotNet (https://example, 1.0)");
-        await _ws.ConnectAsync(new Uri("wss://gateway.discord.gg/?v=10&encoding=json"), ct).ConfigureAwait(false);
+        ClientWebSocket old = _ws;
+        try { old.Dispose(); } catch { /* WebSocket disposal can throw, safe to ignore */ }
+        ClientWebSocket ws = new();
+        ws.Options.SetRequestHeader("User-Agent", "SimpleDiscordDotNet (https://example, 1.0)");
+        await ws.ConnectAsync(new Uri("wss://gateway.discord.gg/?v=10&encoding=json"), ct).ConfigureAwait(false);
+        _ws = ws;
         _reconnectAttempt = 0;
         _awaitingHeartbeatAck = false;
         Interlocked.Exchange(ref _missedHeartbeatAcks, 0);
@@ -34,9 +36,10 @@ internal sealed partial class GatewayClient
             }
             try
             {
-                if (_ws.State is WebSocketState.Open or WebSocketState.CloseReceived)
+                ClientWebSocket ws = _ws;
+                if (ws.State is WebSocketState.Open or WebSocketState.CloseReceived)
                 {
-                    await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None).ConfigureAwait(false);
+                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "reconnect", CancellationToken.None).ConfigureAwait(false);
                 }
             }
             catch { /* WebSocket close can throw if already closed, safe to ignore */ }

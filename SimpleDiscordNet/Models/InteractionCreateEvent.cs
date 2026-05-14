@@ -97,4 +97,5 @@ internal sealed class InteractionResponseData
     public Embed[]? embeds { get; set; }
     public int? flags { get; set; }
     public IComponent[]? components { get; set; }
+    public AllowedMentionsPayload? allowed_mentions { get; set; }
 }

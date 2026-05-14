@@ -13,6 +13,7 @@ public sealed class InteractionContext
     private readonly InteractionCreateEvent _evt;
     private volatile bool _deferred;
     private volatile bool _deferredUpdate;
+    private bool _deferredEphemeral;
     private int _responded;
 
     // Cached parsed ChannelId for O(1) lookup in Channel property
@@ -105,58 +106,85 @@ public sealed class InteractionContext
 
     /// <summary>
     /// Sends an immediate response using a MessageBuilder.
+    /// Automatically defers and sends as followup when file attachments are present
+    /// (Discord does not support files on initial interaction responses).
     /// Example: await ctx.RespondAsync(new MessageBuilder().WithContent("Hello").WithEmbed(embed));
     /// </summary>
     public Task RespondAsync(MessageBuilder builder, bool ephemeral = false, CancellationToken ct = default)
     {
         MessagePayload payload = builder.Build();
+        var files = builder.GetFiles();
+        bool hasFiles = files is not null && files.Count > 0;
+        int? flags = (ephemeral || _deferredEphemeral) ? 1 << 6 : null;
 
         if (_deferred || _deferredUpdate)
         {
-            WebhookMessageRequest webhookPayload = new()
-            {
-                content = payload.content,
-                embeds = payload.embeds,
-                components = payload.components,
-                flags = ephemeral ? 1 << 6 : null
-            };
-            return _rest.PostWebhookFollowupAsync(ApplicationId, InteractionToken, webhookPayload, ct);
+            return SendFollowupAsync(BuildWebhookRequest(payload, flags), files, ct);
         }
 
         if (Interlocked.Exchange(ref _responded, 1) == 1)
             return Task.CompletedTask;
 
-        InteractionResponseData data = new()
+        if (hasFiles)
         {
-            content = payload.content,
-            embeds = payload.embeds,
-            components = payload.components,
-            flags = ephemeral ? 1 << 6 : null
-        };
+            return AutoDeferAndRespondAsync(BuildWebhookRequest(payload, flags), files!, flags, ct);
+        }
 
-        InteractionResponse resp = new() { type = 4, data = data };
+        InteractionResponse resp = new() { type = 4, data = BuildInteractionData(payload, flags) };
         return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, resp, ct);
     }
 
     /// <summary>
     /// Sends an immediate response to the interaction with text and/or embed.
-    /// For complex responses with components, use RespondAsync(MessageBuilder) instead.
+    /// Automatically defers and sends as followup when a file attachment is present
+    /// (Discord does not support files on initial interaction responses).
+    /// For complex responses, use RespondAsync(MessageBuilder) instead.
     /// Example: await ctx.RespondAsync("Hello, world!");
     /// Example: await ctx.RespondAsync(embed: myEmbed); // Embed only, no text
+    /// Example: await ctx.RespondAsync("Here's a chart", fileName: "chart.png", fileData: imageBytes);
     /// </summary>
-    public Task RespondAsync(string content = "", EmbedBuilder? embed = null, bool ephemeral = false, CancellationToken ct = default)
+    public Task RespondAsync(string content = "", EmbedBuilder? embed = null, bool ephemeral = false,
+        string? fileName = null, ReadOnlyMemory<byte>? fileData = null, CancellationToken ct = default)
     {
+        int? flags = (ephemeral || _deferredEphemeral) ? 1 << 6 : null;
+        bool hasFiles = fileName is not null && fileData.HasValue;
+        Embed[]? embeds = embed is null ? null : [embed.Build()];
+
         if (_deferred || _deferredUpdate)
-            return FollowupAsync(content, embed, ephemeral, ct);
+        {
+            WebhookMessageRequest req = new()
+            {
+                content = content,
+                embeds = embeds,
+                flags = flags
+            };
+            if (hasFiles)
+                req.attachments = [new AttachmentReference(0, fileName!)];
+            var filesList = hasFiles ? new List<(string, ReadOnlyMemory<byte>)> { (fileName!, fileData!.Value) } : null;
+            return SendFollowupAsync(req, filesList, ct);
+        }
 
         if (Interlocked.Exchange(ref _responded, 1) == 1)
             return Task.CompletedTask;
 
+        if (hasFiles)
+        {
+            WebhookMessageRequest req = new()
+            {
+                content = content,
+                embeds = embeds,
+                flags = flags,
+                attachments = [new AttachmentReference(0, fileName!)]
+            };
+            var filesList = new List<(string, ReadOnlyMemory<byte>)> { (fileName!, fileData!.Value) };
+            return AutoDeferAndRespondAsync(req, filesList, flags, ct);
+        }
+
         InteractionResponseData data = new()
         {
             content = content,
-            embeds = embed is null ? null : [embed.Build()],
-            flags = ephemeral ? 1 << 6 : null
+            embeds = embeds,
+            flags = flags
         };
         InteractionResponse resp = new() { type = 4, data = data };
         return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, resp, ct);
@@ -180,6 +208,7 @@ public sealed class InteractionContext
             if (t.IsCompletedSuccessfully)
             {
                 _deferred = true;
+                _deferredEphemeral = ephemeral;
             }
             else
             {
@@ -202,15 +231,27 @@ public sealed class InteractionContext
     /// Example: await ctx.FollowupAsync("Here's more info");
     /// Example: await ctx.FollowupAsync(embed: myEmbed); // Embed only, no text
     /// </summary>
-    public Task FollowupAsync(string content = "", EmbedBuilder? embed = null, bool ephemeral = false, CancellationToken ct = default)
+    public Task FollowupAsync(string content = "", EmbedBuilder? embed = null, bool? ephemeral = null, CancellationToken ct = default)
     {
+        bool effectiveEphemeral = ephemeral ?? _deferredEphemeral;
         WebhookMessageRequest payload = new()
         {
             content = content,
             embeds = embed is null ? null : [embed.Build()],
-            flags = ephemeral ? 1 << 6 : null
+            flags = effectiveEphemeral ? 1 << 6 : null
         };
         return _rest.PostWebhookFollowupAsync(ApplicationId, InteractionToken, payload, ct);
+    }
+
+    /// <summary>
+    /// Sends a follow-up message using a MessageBuilder. Supports file attachments.
+    /// Example: await ctx.FollowupAsync(new MessageBuilder().WithContent("Here's a file").AddFile("doc.pdf", bytes));
+    /// </summary>
+    public Task FollowupAsync(MessageBuilder builder, bool? ephemeral = null, CancellationToken ct = default)
+    {
+        bool effectiveEphemeral = ephemeral ?? _deferredEphemeral;
+        MessagePayload payload = builder.Build();
+        return SendFollowupAsync(BuildWebhookRequest(payload, effectiveEphemeral ? 1 << 6 : null), builder.GetFiles(), ct);
     }
 
     /// <summary>
@@ -235,6 +276,16 @@ public sealed class InteractionContext
     }
 
     /// <summary>
+    /// Edits a followup message using a MessageBuilder. Supports file attachments.
+    /// Example: await ctx.EditFollowupAsync(messageId, new MessageBuilder().WithContent("Updated").AddFile("new.png", bytes));
+    /// </summary>
+    public Task<Entities.DiscordMessage?> EditFollowupAsync(string messageId, MessageBuilder builder, CancellationToken ct = default)
+    {
+        MessagePayload payload = builder.Build();
+        return EditFollowupCoreAsync(messageId, BuildWebhookRequest(payload, null), builder.GetFiles(), ct);
+    }
+
+    /// <summary>
     /// Deletes a followup message.
     /// Example: await ctx.DeleteFollowupAsync(messageId);
     /// </summary>
@@ -247,6 +298,13 @@ public sealed class InteractionContext
     /// </summary>
     public Task<Entities.DiscordMessage?> EditOriginalResponseAsync(string content = "", EmbedBuilder? embed = null, CancellationToken ct = default)
         => EditFollowupAsync("@original", content, embed, ct);
+
+    /// <summary>
+    /// Edits the original interaction response using a MessageBuilder. Supports file attachments.
+    /// Example: await ctx.EditOriginalResponseAsync(new MessageBuilder().WithContent("Updated").AddFile("new.png", bytes));
+    /// </summary>
+    public Task<Entities.DiscordMessage?> EditOriginalResponseAsync(MessageBuilder builder, CancellationToken ct = default)
+        => EditFollowupAsync("@original", builder, ct);
 
     /// <summary>
     /// Deletes the original interaction response.
@@ -281,25 +339,39 @@ public sealed class InteractionContext
 
     /// <summary>
     /// Updates the original message in response to a component interaction.
+    /// Automatically defers the update (type 6) when a file attachment is present
+    /// (Discord does not support files on type 7 interaction callbacks).
+    /// Example: await ctx.UpdateMessageAsync("Updated!", fileData: imageBytes, fileName: "chart.png");
     /// </summary>
-    public Task UpdateMessageAsync(string content, IEnumerable<IComponent>? components = null, CancellationToken ct = default)
+    public Task UpdateMessageAsync(string content, IEnumerable<IComponent>? components = null,
+        string? fileName = null, ReadOnlyMemory<byte>? fileData = null, CancellationToken ct = default)
     {
         IComponent[]? comps = components is null ? null : new IComponent[] { new ActionRow(components.ToArray()) };
+        bool hasFiles = fileName is not null && fileData.HasValue;
 
-        if (_deferredUpdate)
+        if (_deferredUpdate || _deferred)
         {
             WebhookMessageRequest payload = new() { content = content, components = comps };
-            return _rest.PatchWebhookOriginalAsync(ApplicationId, InteractionToken, payload, ct);
-        }
-
-        if (_deferred)
-        {
-            WebhookMessageRequest payload = new() { content = content, components = comps };
-            return _rest.PatchWebhookMessageAsync<Entities.DiscordMessage>(ApplicationId, InteractionToken, "@original", payload, ct);
+            if (hasFiles)
+                payload.attachments = [new AttachmentReference(0, fileName!)];
+            var filesList = hasFiles ? new List<(string, ReadOnlyMemory<byte>)> { (fileName!, fileData!.Value) } : null;
+            return EditFollowupCoreAsync("@original", payload, filesList, ct);
         }
 
         if (Interlocked.Exchange(ref _responded, 1) == 1)
             return Task.CompletedTask;
+
+        if (hasFiles)
+        {
+            WebhookMessageRequest request = new()
+            {
+                content = content,
+                components = comps,
+                attachments = [new AttachmentReference(0, fileName!)]
+            };
+            var filesList = new List<(string, ReadOnlyMemory<byte>)> { (fileName!, fileData!.Value) };
+            return AutoDeferAndUpdateAsync(request, filesList, ct);
+        }
 
         InteractionResponseData data = new() { content = content, components = comps };
         InteractionResponse resp = new() { type = 7, data = data };
@@ -308,44 +380,30 @@ public sealed class InteractionContext
 
     /// <summary>
     /// Updates the original message in response to a component interaction using a MessageBuilder.
+    /// Automatically defers the update (type 6) when file attachments are present
+    /// (Discord does not support files on type 7 interaction callbacks).
     /// Example: await ctx.UpdateMessageAsync(new MessageBuilder().WithContent("Updated").WithButton("OK", "ok_btn"));
     /// </summary>
     public Task UpdateMessageAsync(MessageBuilder builder, CancellationToken ct = default)
     {
         MessagePayload payload = builder.Build();
+        var files = builder.GetFiles();
+        bool hasFiles = files is not null && files.Count > 0;
 
-        if (_deferredUpdate)
+        if (_deferredUpdate || _deferred)
         {
-            WebhookMessageRequest webhookPayload = new()
-            {
-                content = payload.content,
-                embeds = payload.embeds,
-                components = payload.components
-            };
-            return _rest.PatchWebhookOriginalAsync(ApplicationId, InteractionToken, webhookPayload, ct);
-        }
-
-        if (_deferred)
-        {
-            WebhookMessageRequest webhookPayload = new()
-            {
-                content = payload.content,
-                embeds = payload.embeds,
-                components = payload.components
-            };
-            return _rest.PatchWebhookMessageAsync<Entities.DiscordMessage>(ApplicationId, InteractionToken, "@original", webhookPayload, ct);
+            return EditFollowupCoreAsync("@original", BuildWebhookRequest(payload, null), files, ct);
         }
 
         if (Interlocked.Exchange(ref _responded, 1) == 1)
             return Task.CompletedTask;
 
-        InteractionResponseData data = new()
+        if (hasFiles)
         {
-            content = payload.content,
-            embeds = payload.embeds,
-            components = payload.components
-        };
-        InteractionResponse resp = new() { type = 7, data = data };
+            return AutoDeferAndUpdateAsync(BuildWebhookRequest(payload, null), files!, ct);
+        }
+
+        InteractionResponse resp = new() { type = 7, data = BuildInteractionData(payload, null) };
         return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, resp, ct);
     }
 
@@ -355,7 +413,7 @@ public sealed class InteractionContext
     /// Example: await ctx.UpdateAsync("Updated!");
     /// </summary>
     public Task UpdateAsync(string content, IEnumerable<IComponent>? components = null, CancellationToken ct = default)
-        => UpdateMessageAsync(content, components, ct);
+        => UpdateMessageAsync(content, components, ct: ct);
 
     /// <summary>
     /// Alias for <see cref="UpdateMessageAsync(MessageBuilder, CancellationToken)"/>.
@@ -393,7 +451,7 @@ public sealed class InteractionContext
     /// Example: await ctx.ReplyAsync("Done!");
     /// </summary>
     public Task ReplyAsync(string content, bool ephemeral = false, CancellationToken ct = default)
-        => RespondAsync(content, null, ephemeral, ct);
+        => RespondAsync(content, null, ephemeral, ct: ct);
 
     /// <summary>
     /// Sends an ephemeral (only visible to user) response.
@@ -401,7 +459,7 @@ public sealed class InteractionContext
     /// Example: await ctx.ReplyEphemeralAsync(embed: myEmbed); // Embed only, no text
     /// </summary>
     public Task ReplyEphemeralAsync(string content = "", EmbedBuilder? embed = null, CancellationToken ct = default)
-        => RespondAsync(content, embed, ephemeral: true, ct);
+        => RespondAsync(content, embed, ephemeral: true, ct: ct);
 
     /// <summary>
     /// Sends a response with an embed.
@@ -409,7 +467,7 @@ public sealed class InteractionContext
     /// Example: await ctx.ReplyWithEmbedAsync(embed: myEmbed); // Embed only, no text
     /// </summary>
     public Task ReplyWithEmbedAsync(string content = "", EmbedBuilder? embed = null, bool ephemeral = false, CancellationToken ct = default)
-        => RespondAsync(content, embed, ephemeral, ct);
+        => RespondAsync(content, embed, ephemeral, ct: ct);
 
     /// <summary>
     /// Sends a response with buttons.
@@ -602,6 +660,89 @@ public sealed class InteractionContext
     /// Example: if (ctx.IsButton()) { }
     /// </summary>
     public bool IsButton() => Component?.ComponentType == 2;
+
+    private static WebhookMessageRequest BuildWebhookRequest(MessagePayload payload, int? flags)
+        => new()
+        {
+            content = payload.content,
+            embeds = payload.embeds,
+            components = payload.components,
+            attachments = payload.attachments,
+            allowed_mentions = payload.allowed_mentions,
+            flags = flags
+        };
+
+    private static InteractionResponseData BuildInteractionData(MessagePayload payload, int? flags)
+        => new()
+        {
+            content = payload.content,
+            embeds = payload.embeds,
+            components = payload.components,
+            allowed_mentions = payload.allowed_mentions,
+            flags = flags
+        };
+
+    private Task SendFollowupAsync(WebhookMessageRequest request,
+        List<(string, ReadOnlyMemory<byte>)>? files, CancellationToken ct)
+    {
+        if (files is not null && files.Count > 0)
+        {
+            return _rest.PostMultipartAsync<Entities.DiscordMessage>(
+                $"/webhooks/{ApplicationId}/{InteractionToken}", request, files, ct);
+        }
+        return _rest.PostWebhookFollowupAsync(ApplicationId, InteractionToken, request, ct);
+    }
+
+    private Task<Entities.DiscordMessage?> EditFollowupCoreAsync(string messageId,
+        WebhookMessageRequest request, List<(string, ReadOnlyMemory<byte>)>? files, CancellationToken ct)
+    {
+        if (files is not null && files.Count > 0)
+        {
+            return _rest.PatchMultipartAsync<Entities.DiscordMessage>(
+                $"/webhooks/{ApplicationId}/{InteractionToken}/messages/{messageId}", request, files, ct)!;
+        }
+        return _rest.PatchWebhookMessageAsync<Entities.DiscordMessage>(
+            ApplicationId, InteractionToken, messageId, request, ct);
+    }
+
+    private async Task AutoDeferAndRespondAsync(WebhookMessageRequest request,
+        List<(string, ReadOnlyMemory<byte>)> files, int? flags, CancellationToken ct)
+    {
+        InteractionResponseData deferData = new() { flags = flags };
+        InteractionResponse deferResp = new() { type = 5, data = deferData };
+
+        try
+        {
+            await _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, deferResp, ct);
+            _deferred = true;
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _responded, 0);
+            throw;
+        }
+
+        await SendFollowupAsync(request, files, ct);
+    }
+
+    private async Task AutoDeferAndUpdateAsync(WebhookMessageRequest request,
+        List<(string, ReadOnlyMemory<byte>)> files, CancellationToken ct)
+    {
+        InteractionResponse deferResp = new() { type = 6, data = null };
+
+        try
+        {
+            await _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, deferResp, ct);
+            _deferredUpdate = true;
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _responded, 0);
+            throw;
+        }
+
+        await EditFollowupCoreAsync("@original", request, files, ct);
+    }
 
     private Dictionary<string, InteractionOption> GetOptionsCache()
     {

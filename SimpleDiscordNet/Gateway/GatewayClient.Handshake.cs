@@ -22,7 +22,14 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, identify, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        LogGatewaySend(2, buffer.WrittenSpan);
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ClientWebSocket ws = _ws;
+            await ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        }
+        finally { _writeLock.Release(); }
     }
 
     private async Task ResumeAsync(CancellationToken ct)
@@ -46,7 +53,14 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, resume, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        LogGatewaySend(6, buffer.WrittenSpan);
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ClientWebSocket ws = _ws;
+            await ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        }
+        finally { _writeLock.Release(); }
     }
 
     /// <summary>
@@ -55,8 +69,6 @@ internal sealed partial class GatewayClient
     /// </summary>
     public async Task RequestGuildMembersAsync(string guildId, CancellationToken ct = default)
     {
-        if (_ws.State != WebSocketState.Open) return;
-
         RequestGuildMembers request = new()
         {
             d = new RequestGuildMembersPayload
@@ -71,7 +83,23 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, request, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        LogGatewaySend(8, buffer.WrittenSpan);
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ClientWebSocket ws = _ws;
+            if (ws.State != WebSocketState.Open)
+            {
+                Error?.Invoke(this, new InvalidOperationException("Cannot request guild members: WebSocket is not open."));
+                return;
+            }
+            await ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Error?.Invoke(this, ex);
+        }
+        finally { _writeLock.Release(); }
     }
 
     /// <summary>
@@ -79,8 +107,6 @@ internal sealed partial class GatewayClient
     /// </summary>
     public async Task UpdatePresenceAsync(string status, BotActivity[]? activities, long? since = null, bool afk = false, CancellationToken ct = default)
     {
-        if (_ws.State != WebSocketState.Open) return;
-
         UpdatePresence presence = new()
         {
             d = new UpdatePresencePayload
@@ -96,6 +122,22 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, presence, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        LogGatewaySend(3, buffer.WrittenSpan);
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ClientWebSocket ws = _ws;
+            if (ws.State != WebSocketState.Open)
+            {
+                Error?.Invoke(this, new InvalidOperationException("Cannot update presence: WebSocket is not open."));
+                return;
+            }
+            await ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Error?.Invoke(this, ex);
+        }
+        finally { _writeLock.Release(); }
     }
 }

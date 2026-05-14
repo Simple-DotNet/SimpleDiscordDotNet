@@ -119,4 +119,10 @@ public sealed record DiscordBotOptions
     /// Example: SynchronizationContext = SynchronizationContext.Current
     /// </summary>
     public SynchronizationContext? SynchronizationContext { get; init; }
+
+    /// <summary>
+    /// Enables debug logging of all outgoing gateway payloads via the Error event.
+    /// Default is false. Useful for diagnosing Discord 4002 or other gateway issues.
+    /// </summary>
+    public bool EnableGatewayDebug { get; init; } = false;
 }

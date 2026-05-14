@@ -44,6 +44,17 @@ public sealed class AppCommands
         await ctx.RespondAsync(embed: embed);
     }
 
+    [SlashCommand("chart", "Send a chart image")]
+    public async Task ChartAsync(InteractionContext ctx)
+    {
+        byte[] chartBytes = GenerateChart();
+
+        // Auto-defers and sends file — no manual defer needed
+        await ctx.RespondAsync("Here's the latest chart:",
+            fileName: "chart.png",
+            fileData: chartBytes);
+    }
+
     [SlashCommand("userinfo", "Get user information")]
     public async Task UserInfoAsync(InteractionContext ctx)
     {
@@ -118,6 +129,26 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 **Ready to build your Discord bot?** Head to the [Wiki](./wiki) to get started!
 
 ## Version History
+
+### v1.10.9 - File Attachments on Interaction Responses & Followups
+- **File Attachments on Responses** — `RespondAsync`, `FollowupAsync`, `EditFollowupAsync`, and `UpdateMessageAsync` now support file attachments via `MessageBuilder.AddFile()` or direct `fileName`/`fileData` parameters. The SDK automatically defers then sends files as followups when used on initial interaction responses (Discord does not support files on type 4/7 callbacks).
+- **File Attachments on Followups & Edits** — `FollowupAsync(MessageBuilder)`, `EditFollowupAsync(string, MessageBuilder)`, and `EditOriginalResponseAsync(MessageBuilder)` new overloads support multipart file uploads via webhook endpoints, including PATCH multipart for editing messages with attachments.
+- **`allowed_mentions` Propagation** — `InteractionResponseData` and `WebhookMessageRequest` now include `allowed_mentions` from `MessagePayload`, fixing silent data loss when using `MessageBuilder.WithMention()` on interaction responses.
+- **Auto-Defer Detection** — `RespondAsync` and `UpdateMessageAsync` now automatically defer (type 5/type 6) when file attachments are present on the initial response path. The user never needs to manually defer just to send files. `RestClient.SendMultipartAsync` refactored to accept `HttpMethod` for PATCH multipart support.
+- **`[Ephemeral]` Propagation** — The `[Ephemeral]` attribute now properly propagates to followup messages. When a handler has `[Ephemeral]`, followups sent via `FollowupAsync`/`RespondAsync` default to ephemeral without requiring explicit `ephemeral: true` on every call. Use `ephemeral: false` to override per-message. `FollowupAsync` now accepts `bool? ephemeral` for nullable semantics.
+- **AOT Serialization Fixes** — Added missing `[JsonSerializable]` registrations: `DiscordMessage[]`, `IEnumerable<DiscordBan>`, `int?`. New typed entities replace `object`/`object[]` deserialization: `DiscordWebhook`, `DiscordSticker`, `DiscordInvite` with array variants. Webhook/Sticker/Invite API methods now return strongly-typed entities instead of `IEnumerable<object>` or `Task<object?>`.
+- ✅ **0 breaking changes** — All new parameters are optional with defaults. `Task` return types unchanged. `bool` → `bool?` implicit conversion compatible.
+
+### v1.10.8 - Component Serialization Fix for .NET 10
+- **Polymorphic Serialization Fix** — `IComponent` implementations (`ActionRow`, `Button`, `StringSelect`, `TextInput`, `UserSelect`, `RoleSelect`, `MentionableSelect`, `ChannelSelect`) now use `[JsonIgnore]` on the `type` property, resolving an `InvalidOperationException` crash caused by a metadata name conflict with the `[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]` discriminator in .NET 10.
+
+### v1.10.7 - Gateway Hardening, Missing Event Wiring & Presence Fix
+- **Gateway Reliability** — WebSocket write serialization via `SemaphoreSlim` prevents concurrent `SendAsync` race causing disconnects. `_ws` field made `volatile`; all send/receive methods capture `_ws` locally eliminating TOCTOU races. `ConnectSocketAsync` defers `_ws` assignment until connection succeeds. State checks moved inside write lock.
+- **Missing Events Wired** — 26 dispatch cases added to `HandleDispatch` for previously-dead gateway events: `VoiceStateUpdate`, `PresenceUpdate`, `TypingStart`, `WebhooksUpdate`, `InviteCreate`, `InviteDelete`, `GuildIntegrationsUpdate`, `AutoModeration*`, `StageInstance*`, `GuildScheduledEvent*`, `Integration*`, `VoiceServerUpdate`, `GuildJoinRequest*`, `PollVote*`. 7 new `TryEmit*` helpers + 20 handler methods wired through `DiscordBot`, `ShardManager`, and `DiscordEvents`.
+- **Presence Fix** — `UpdatePresencePayload.since` uses `[JsonIgnore(Condition = Never)]` — Discord requires this field present even when `null`. `BotActivity.url` uses `[JsonIgnore(Condition = WhenWritingNull)]` to omit `null` for non-streaming activities. `DefaultIgnoreCondition = WhenWritingNull` added to source-gen options.
+- **AOT Serialization** — `ApplicationCommandDefinition[]` no longer boxed to `object[]` (caused 4002 errors). All command sync paths use strongly-typed arrays registered in source-gen context.
+- **Diagnostics** — Close frame reason now logged via `Error` event. `Disconnected` event fires before auto-reconnect. Added `WithGatewayDebug()` opt-in diagnostic logging for all outgoing gateway payloads. `EnableGatewayDebug` added to `DiscordBotOptions`.
+- **API Enhancements** — Optional `status` parameter added to `SetGameAsync`, `SetWatchingAsync`, `SetListeningAsync`, `SetStreamingAsync`, `SetCompetingAsync`. `UpdatePresenceAsync` and `RequestGuildMembersAsync` now fire `Error` instead of silently returning. `ActivityType` enum gap at value 4 documented.
 
 ### v1.10.0 - Comprehensive Bug Fixes & Hardening Pass
 - **Rate Limiter** — Route-to-bucketId mapping fixed (rate limiting was non-functional). Semaphore deadlock eliminated. Sync-over-async removed. `Handle429Async` uses `Max(existing, new)` for reset time.

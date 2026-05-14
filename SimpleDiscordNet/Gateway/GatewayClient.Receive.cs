@@ -16,7 +16,8 @@ internal sealed partial class GatewayClient
             {
                 while (!ct.IsCancellationRequested)
                 {
-                    if (_ws.State != WebSocketState.Open)
+                    ClientWebSocket ws = _ws;
+                    if (ws.State != WebSocketState.Open)
                     {
                         if (!_autoReconnect) return;
                         bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
@@ -25,20 +26,25 @@ internal sealed partial class GatewayClient
                             await _reconnectGate.WaitAsync(ct).ConfigureAwait(false);
                             try
                             {
-                                if (!_autoReconnect || _ws.State != WebSocketState.Open) return;
+                                ws = _ws;
+                                if (!_autoReconnect || ws.State != WebSocketState.Open) return;
                             }
                             finally { _reconnectGate.Release(); }
                             goto ContinueLoop;
                         }
-                        if (_ws.State != WebSocketState.Open) return;
+                        ws = _ws;
+                        if (ws.State != WebSocketState.Open) return;
                     }
                     memoryStream.SetLength(0);
                     WebSocketReceiveResult? result;
                     do
                     {
-                        result = await _ws.ReceiveAsync(seg, ct).ConfigureAwait(false);
+                        result = await ws.ReceiveAsync(seg, ct).ConfigureAwait(false);
                         if (result.MessageType == WebSocketMessageType.Close)
                         {
+                            string reason = $"Close: {result.CloseStatus} - {result.CloseStatusDescription}";
+                            Error?.Invoke(this, new WebSocketException((int)(result.CloseStatus ?? WebSocketCloseStatus.Empty), reason));
+                            Disconnected?.Invoke(this, new WebSocketException((int)(result.CloseStatus ?? WebSocketCloseStatus.Empty), reason));
                             // Attempt to reconnect, according to gateway policy
                             if (!_autoReconnect)
                             {
@@ -51,7 +57,8 @@ internal sealed partial class GatewayClient
                                 await _reconnectGate.WaitAsync(ct).ConfigureAwait(false);
                                 try
                                 {
-                                    if (!_autoReconnect || _ws.State != WebSocketState.Open) return;
+                                    ClientWebSocket ws2 = _ws;
+                                    if (!_autoReconnect || ws2.State != WebSocketState.Open) return;
                                 }
                                 finally { _reconnectGate.Release(); }
                                 goto ContinueLoop;
@@ -131,7 +138,8 @@ internal sealed partial class GatewayClient
                             await _reconnectGate.WaitAsync(ct).ConfigureAwait(false);
                             try
                             {
-                                if (!_autoReconnect || _ws.State != WebSocketState.Open) return;
+                                ClientWebSocket ws = _ws;
+                                if (!_autoReconnect || ws.State != WebSocketState.Open) return;
                             }
                             finally { _reconnectGate.Release(); }
                         }

@@ -12,6 +12,7 @@ namespace SimpleDiscordNet.Serialization;
 
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata,
                              PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+                             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                              WriteIndented = false,
                              Converters = [typeof(DiscordSnowflakeConverter), typeof(NullableDiscordSnowflakeConverter)])]
 [JsonSerializable(typeof(ApplicationInfo))]
@@ -27,10 +28,24 @@ namespace SimpleDiscordNet.Serialization;
 [JsonSerializable(typeof(DiscordUser[]))]
 [JsonSerializable(typeof(DiscordEmoji))]
 [JsonSerializable(typeof(DiscordEmoji[]))]
+[JsonSerializable(typeof(DiscordWebhook))]
+[JsonSerializable(typeof(DiscordWebhook[]))]
+[JsonSerializable(typeof(DiscordSticker))]
+[JsonSerializable(typeof(DiscordSticker[]))]
+[JsonSerializable(typeof(DiscordInvite))]
+[JsonSerializable(typeof(DiscordInvite[]))]
+[JsonSerializable(typeof(DiscordStageInstance))]
+[JsonSerializable(typeof(DiscordStageInstance[]))]
+[JsonSerializable(typeof(DiscordScheduledEvent))]
+[JsonSerializable(typeof(DiscordScheduledEvent[]))]
+[JsonSerializable(typeof(DiscordAutoModerationRule))]
+[JsonSerializable(typeof(DiscordAutoModerationRule[]))]
 [JsonSerializable(typeof(DiscordMessage))]
+[JsonSerializable(typeof(DiscordMessage[]))]
 [JsonSerializable(typeof(ChannelPermissionOverwrite))]
 [JsonSerializable(typeof(ChannelPermissionOverwrite[]))]
 [JsonSerializable(typeof(DiscordBan))]
+[JsonSerializable(typeof(IEnumerable<DiscordBan>))]
 [JsonSerializable(typeof(DiscordAuditLog))]
 [JsonSerializable(typeof(DiscordAuditLogEntry))]
 [JsonSerializable(typeof(DiscordAuditLogEntry[]))]
@@ -130,5 +145,6 @@ namespace SimpleDiscordNet.Serialization;
 [JsonSerializable(typeof(ModifyCurrentUserRequest))]
 [JsonSerializable(typeof(ModifyNicknameRequest))]
 [JsonSerializable(typeof(EmptyPayload))]
+[JsonSerializable(typeof(int?))]
 
 internal partial class DiscordJsonContext : JsonSerializerContext;

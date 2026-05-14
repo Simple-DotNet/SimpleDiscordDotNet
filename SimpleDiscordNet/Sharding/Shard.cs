@@ -39,7 +39,7 @@ internal sealed class Shard : IDisposable
     /// Creates a new shard wrapper.
     /// Example: new Shard(0, 4, token, intents, json, logger)
     /// </summary>
-    public Shard(int shardId, int totalShards, string token, DiscordIntents intents, JsonSerializerOptions json, NativeLogger logger)
+    public Shard(int shardId, int totalShards, string token, DiscordIntents intents, JsonSerializerOptions json, NativeLogger logger, bool enableGatewayDebug = false)
     {
         _shardId = shardId;
         _totalShards = totalShards;
@@ -47,7 +47,7 @@ internal sealed class Shard : IDisposable
         _intents = intents;
         _json = json;
         _logger = logger;
-        _gateway = new GatewayClient(token, intents, json, shardId, totalShards);
+        _gateway = new GatewayClient(token, intents, json, shardId, totalShards, enableGatewayDebug);
 
         WireEvents();
     }

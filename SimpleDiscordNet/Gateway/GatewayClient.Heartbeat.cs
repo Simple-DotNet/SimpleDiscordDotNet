@@ -40,7 +40,6 @@ internal sealed partial class GatewayClient
 
     private async Task SendHeartbeatAsync(CancellationToken ct)
     {
-        if (_ws.State != WebSocketState.Open) return;
         if (_awaitingHeartbeatAck)
         {
             int missed = Interlocked.Increment(ref _missedHeartbeatAcks);
@@ -56,7 +55,15 @@ internal sealed partial class GatewayClient
         {
             JsonSerializer.Serialize(writer, hb, json);
         }
-        await _ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
-        _awaitingHeartbeatAck = true;
+        LogGatewaySend(1, buffer.WrittenSpan);
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ClientWebSocket ws = _ws;
+            if (ws.State != WebSocketState.Open) return;
+            await ws.SendAsync(buffer.WrittenMemory, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+            _awaitingHeartbeatAck = true;
+        }
+        finally { _writeLock.Release(); }
     }
 }

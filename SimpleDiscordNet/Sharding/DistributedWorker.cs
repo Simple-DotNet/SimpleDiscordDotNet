@@ -36,7 +36,8 @@ internal sealed class DistributedWorker : IDisposable
         NativeLogger logger,
         string processId,
         string workerUrl,
-        string coordinatorUrl)
+        string coordinatorUrl,
+        bool enableGatewayDebug = false)
     {
         _token = token;
         _intents = intents;
@@ -47,7 +48,7 @@ internal sealed class DistributedWorker : IDisposable
         _coordinatorUrl = coordinatorUrl;
         _client = new ShardHttpClient();
         _server = new ShardHttpServer(workerUrl, logger);
-        _shardManager = new ShardManager(token, intents, json, logger);
+        _shardManager = new ShardManager(token, intents, json, logger, enableGatewayDebug);
         _succession = new SuccessionManager(logger);
         _metricsTimer = new Timer(SendMetrics, null, Timeout.Infinite, Timeout.Infinite);
 

@@ -61,31 +61,31 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     /// Sets the bot's presence to "Playing {name}".
     /// Example: await bot.SetGameAsync("Minecraft");
     /// </summary>
-    Task SetGameAsync(string name);
+    Task SetGameAsync(string name, string status = "online");
 
     /// <summary>
     /// Sets the bot's presence to "Watching {name}".
     /// Example: await bot.SetWatchingAsync("YouTube");
     /// </summary>
-    Task SetWatchingAsync(string name);
+    Task SetWatchingAsync(string name, string status = "online");
 
     /// <summary>
     /// Sets the bot's presence to "Listening to {name}".
     /// Example: await bot.SetListeningAsync("Spotify");
     /// </summary>
-    Task SetListeningAsync(string name);
+    Task SetListeningAsync(string name, string status = "online");
 
     /// <summary>
     /// Sets the bot's presence to "Streaming {name}" with a Twitch/YouTube URL.
     /// Example: await bot.SetStreamingAsync("Live coding!", "https://twitch.tv/myChannel");
     /// </summary>
-    Task SetStreamingAsync(string name, string url);
+    Task SetStreamingAsync(string name, string url, string status = "online");
 
     /// <summary>
     /// Sets the bot's presence to "Competing in {name}".
     /// Example: await bot.SetCompetingAsync("a tournament");
     /// </summary>
-    Task SetCompetingAsync(string name);
+    Task SetCompetingAsync(string name, string status = "online");
 
     /// <summary>
     /// Full presence control. Sets status and activities across all gateway connections.

@@ -37,7 +37,7 @@ public interface IComponent
 
 public sealed class ActionRow : IComponent
 {
-    public int type => 1;
+    [JsonIgnore] public int type => 1;
     public IComponent[] components { get; }
     public ActionRow(params IComponent[] components)
     {
@@ -47,7 +47,7 @@ public sealed class ActionRow : IComponent
 
 public sealed class Button : IComponent
 {
-    public int type => 2;
+    [JsonIgnore] public int type => 2;
     public string? custom_id { get; }
     public string? label { get; }
     public int style { get; }
@@ -116,7 +116,7 @@ public sealed class SelectDefaultValue
 
 public sealed class StringSelect : IComponent
 {
-    public int type => 3;
+    [JsonIgnore] public int type => 3;
     public string custom_id { get; }
     public SelectOption[] options { get; }
     public string? placeholder { get; }
@@ -136,7 +136,7 @@ public sealed class StringSelect : IComponent
 
 public sealed class UserSelect : IComponent
 {
-    public int type => 5;
+    [JsonIgnore] public int type => 5;
     public string custom_id { get; }
     public string? placeholder { get; }
     public int? min_values { get; }
@@ -156,7 +156,7 @@ public sealed class UserSelect : IComponent
 
 public sealed class RoleSelect : IComponent
 {
-    public int type => 6;
+    [JsonIgnore] public int type => 6;
     public string custom_id { get; }
     public string? placeholder { get; }
     public int? min_values { get; }
@@ -176,7 +176,7 @@ public sealed class RoleSelect : IComponent
 
 public sealed class MentionableSelect : IComponent
 {
-    public int type => 7;
+    [JsonIgnore] public int type => 7;
     public string custom_id { get; }
     public string? placeholder { get; }
     public int? min_values { get; }
@@ -196,7 +196,7 @@ public sealed class MentionableSelect : IComponent
 
 public sealed class ChannelSelect : IComponent
 {
-    public int type => 8;
+    [JsonIgnore] public int type => 8;
     public string custom_id { get; }
     public string? placeholder { get; }
     public int? min_values { get; }
@@ -219,7 +219,7 @@ public sealed class ChannelSelect : IComponent
 // Text input (used inside modal action rows)
 public sealed class TextInput : IComponent
 {
-    public int type => 4; // text input
+    [JsonIgnore] public int type => 4; // text input
     public string custom_id { get; }
     public string label { get; }
     public int style { get; } // 1=short, 2=paragraph
