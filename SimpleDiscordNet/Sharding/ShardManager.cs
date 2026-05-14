@@ -18,15 +18,17 @@ internal sealed class ShardManager : IDisposable
     private readonly DiscordIntents _intents;
     private readonly JsonSerializerOptions _json;
     private readonly NativeLogger _logger;
+    private readonly bool _enableGatewayDebug;
     private readonly ConcurrentDictionary<int, Shard> _shards = new();
     private volatile bool _disposed;
 
-    public ShardManager(string token, DiscordIntents intents, JsonSerializerOptions json, NativeLogger logger)
+    public ShardManager(string token, DiscordIntents intents, JsonSerializerOptions json, NativeLogger logger, bool enableGatewayDebug = false)
     {
         _token = token;
         _intents = intents;
         _json = json;
         _logger = logger;
+        _enableGatewayDebug = enableGatewayDebug;
     }
 
     /// <summary>
@@ -37,7 +39,7 @@ internal sealed class ShardManager : IDisposable
     {
         if (_disposed) throw new ObjectDisposedException(nameof(ShardManager));
 
-        var shard = new Shard(shardId, totalShards, _token, _intents, _json, _logger);
+        var shard = new Shard(shardId, totalShards, _token, _intents, _json, _logger, _enableGatewayDebug);
         if (!_shards.TryAdd(shardId, shard))
         {
             shard.Dispose();
@@ -166,6 +168,27 @@ internal sealed class ShardManager : IDisposable
         EventHandler<Events.InviteCreateEvent>? onInviteCreate,
         EventHandler<Events.InviteDeleteEvent>? onInviteDelete,
         EventHandler<Events.GuildIntegrationsUpdateEvent>? onGuildIntegrationsUpdate,
+        EventHandler<Events.AutoModerationRuleCreatedEvent>? onAutoModerationRuleCreated,
+        EventHandler<Events.AutoModerationRuleUpdatedEvent>? onAutoModerationRuleUpdated,
+        EventHandler<Events.AutoModerationRuleDeletedEvent>? onAutoModerationRuleDeleted,
+        EventHandler<Events.AutoModerationActionExecutionEvent>? onAutoModerationActionExecution,
+        EventHandler<Events.StageInstanceCreatedEvent>? onStageInstanceCreated,
+        EventHandler<Events.StageInstanceUpdatedEvent>? onStageInstanceUpdated,
+        EventHandler<Events.StageInstanceDeletedEvent>? onStageInstanceDeleted,
+        EventHandler<Events.GuildScheduledEventCreatedEvent>? onGuildScheduledEventCreated,
+        EventHandler<Events.GuildScheduledEventUpdatedEvent>? onGuildScheduledEventUpdated,
+        EventHandler<Events.GuildScheduledEventDeletedEvent>? onGuildScheduledEventDeleted,
+        EventHandler<Events.GuildScheduledEventUserAddedEvent>? onGuildScheduledEventUserAdded,
+        EventHandler<Events.GuildScheduledEventUserRemovedEvent>? onGuildScheduledEventUserRemoved,
+        EventHandler<Events.IntegrationCreatedEvent>? onIntegrationCreated,
+        EventHandler<Events.IntegrationUpdatedEvent>? onIntegrationUpdated,
+        EventHandler<Events.IntegrationDeletedEvent>? onIntegrationDeleted,
+        EventHandler<Events.VoiceServerUpdateEvent>? onVoiceServerUpdate,
+        EventHandler<Events.GuildJoinRequestCreatedEvent>? onGuildJoinRequestCreated,
+        EventHandler<Events.GuildJoinRequestUpdatedEvent>? onGuildJoinRequestUpdated,
+        EventHandler<Events.GuildJoinRequestDeletedEvent>? onGuildJoinRequestDeleted,
+        EventHandler<Events.PollVoteAddedEvent>? onPollVoteAdded,
+        EventHandler<Events.PollVoteRemovedEvent>? onPollVoteRemoved,
         EventHandler<Entities.DiscordChannel>? onChannelCreate,
         EventHandler<Entities.DiscordChannel>? onChannelUpdate,
         EventHandler<Entities.DiscordChannel>? onChannelDelete,
@@ -208,6 +231,27 @@ internal sealed class ShardManager : IDisposable
         if (onInviteCreate != null) gateway.InviteCreate += onInviteCreate;
         if (onInviteDelete != null) gateway.InviteDelete += onInviteDelete;
         if (onGuildIntegrationsUpdate != null) gateway.GuildIntegrationsUpdate += onGuildIntegrationsUpdate;
+        if (onAutoModerationRuleCreated != null) gateway.AutoModerationRuleCreated += onAutoModerationRuleCreated;
+        if (onAutoModerationRuleUpdated != null) gateway.AutoModerationRuleUpdated += onAutoModerationRuleUpdated;
+        if (onAutoModerationRuleDeleted != null) gateway.AutoModerationRuleDeleted += onAutoModerationRuleDeleted;
+        if (onAutoModerationActionExecution != null) gateway.AutoModerationActionExecution += onAutoModerationActionExecution;
+        if (onStageInstanceCreated != null) gateway.StageInstanceCreated += onStageInstanceCreated;
+        if (onStageInstanceUpdated != null) gateway.StageInstanceUpdated += onStageInstanceUpdated;
+        if (onStageInstanceDeleted != null) gateway.StageInstanceDeleted += onStageInstanceDeleted;
+        if (onGuildScheduledEventCreated != null) gateway.GuildScheduledEventCreated += onGuildScheduledEventCreated;
+        if (onGuildScheduledEventUpdated != null) gateway.GuildScheduledEventUpdated += onGuildScheduledEventUpdated;
+        if (onGuildScheduledEventDeleted != null) gateway.GuildScheduledEventDeleted += onGuildScheduledEventDeleted;
+        if (onGuildScheduledEventUserAdded != null) gateway.GuildScheduledEventUserAdded += onGuildScheduledEventUserAdded;
+        if (onGuildScheduledEventUserRemoved != null) gateway.GuildScheduledEventUserRemoved += onGuildScheduledEventUserRemoved;
+        if (onIntegrationCreated != null) gateway.IntegrationCreated += onIntegrationCreated;
+        if (onIntegrationUpdated != null) gateway.IntegrationUpdated += onIntegrationUpdated;
+        if (onIntegrationDeleted != null) gateway.IntegrationDeleted += onIntegrationDeleted;
+        if (onVoiceServerUpdate != null) gateway.VoiceServerUpdate += onVoiceServerUpdate;
+        if (onGuildJoinRequestCreated != null) gateway.GuildJoinRequestCreated += onGuildJoinRequestCreated;
+        if (onGuildJoinRequestUpdated != null) gateway.GuildJoinRequestUpdated += onGuildJoinRequestUpdated;
+        if (onGuildJoinRequestDeleted != null) gateway.GuildJoinRequestDeleted += onGuildJoinRequestDeleted;
+        if (onPollVoteAdded != null) gateway.PollVoteAdded += onPollVoteAdded;
+        if (onPollVoteRemoved != null) gateway.PollVoteRemoved += onPollVoteRemoved;
         if (onChannelCreate != null) gateway.ChannelCreate += onChannelCreate;
         if (onChannelUpdate != null) gateway.ChannelUpdate += onChannelUpdate;
         if (onChannelDelete != null) gateway.ChannelDelete += onChannelDelete;

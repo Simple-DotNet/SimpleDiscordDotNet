@@ -563,7 +563,7 @@ internal sealed partial class GatewayClient
     {
         try
         {
-            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
+            ulong? guildId = data.TryGetProperty("guild_id", out JsonElement gid) && gid.ValueKind != JsonValueKind.Null ? gid.GetDiscordIdNullable() : null;
             ulong userId = data.GetProperty("user_id").GetDiscordId();
             ulong channelId = data.GetProperty("channel_id").GetDiscordId();
             ulong messageId = data.GetProperty("message_id").GetDiscordId();
@@ -578,12 +578,185 @@ internal sealed partial class GatewayClient
     {
         try
         {
-            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
-            ulong userId = data.GetProperty("user_id").GetDiscordId();
+            ulong? guildId = data.TryGetProperty("guild_id", out JsonElement gid) && gid.ValueKind != JsonValueKind.Null ? gid.GetDiscordIdNullable() : null;
             ulong channelId = data.GetProperty("channel_id").GetDiscordId();
             ulong messageId = data.GetProperty("message_id").GetDiscordId();
+            ulong userId = data.GetProperty("user_id").GetDiscordId();
             ulong answerId = data.GetProperty("answer_id").GetDiscordId();
             PollVoteRemovedEvent e = new() { GuildId = guildId, UserId = userId, ChannelId = channelId, MessageId = messageId, AnswerId = answerId };
+            evt?.Invoke(this, e);
+        }
+        catch (Exception ex) { Error?.Invoke(this, ex); }
+    }
+
+    private void TryEmitVoiceStateUpdateEvent(JsonElement data, EventHandler<VoiceStateUpdateEvent>? evt)
+    {
+        try
+        {
+            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
+            ulong? channelId = data.TryGetProperty("channel_id", out JsonElement cid) && cid.ValueKind != JsonValueKind.Null ? cid.GetDiscordIdNullable() : null;
+            ulong userId = data.GetProperty("user_id").GetDiscordId();
+            string sessionId = data.GetProperty("session_id").GetString() ?? string.Empty;
+            bool deaf = data.TryGetProperty("deaf", out JsonElement d) && d.ValueKind == JsonValueKind.True;
+            bool mute = data.TryGetProperty("mute", out JsonElement m) && m.ValueKind == JsonValueKind.True;
+            bool selfDeaf = data.TryGetProperty("self_deaf", out JsonElement sd) && sd.ValueKind == JsonValueKind.True;
+            bool selfMute = data.TryGetProperty("self_mute", out JsonElement sm) && sm.ValueKind == JsonValueKind.True;
+            bool suppress = data.TryGetProperty("suppress", out JsonElement sp) && sp.ValueKind == JsonValueKind.True;
+            DateTimeOffset? requestToSpeakTimestamp = data.TryGetProperty("request_to_speak_timestamp", out JsonElement rts) && rts.ValueKind == JsonValueKind.String
+                ? DateTimeOffset.Parse(rts.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) : null;
+
+            VoiceStateUpdateEvent e = new()
+            {
+                GuildId = guildId,
+                ChannelId = channelId,
+                UserId = userId,
+                SessionId = sessionId,
+                Deaf = deaf,
+                Mute = mute,
+                SelfDeaf = selfDeaf,
+                SelfMute = selfMute,
+                Suppress = suppress,
+                RequestToSpeakTimestamp = requestToSpeakTimestamp
+            };
+            evt?.Invoke(this, e);
+        }
+        catch (Exception ex) { Error?.Invoke(this, ex); }
+    }
+
+    private void TryEmitPresenceUpdateEvent(JsonElement data, EventHandler<PresenceUpdateEvent>? evt)
+    {
+        try
+        {
+            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
+            DiscordUser user = ParseUser(data.GetProperty("user"));
+            string status = data.GetProperty("status").GetString() ?? "offline";
+
+            List<Activity> activities = [];
+            if (data.TryGetProperty("activities", out JsonElement activitiesEl) && activitiesEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement a in activitiesEl.EnumerateArray())
+                {
+                    string name = a.GetProperty("name").GetString() ?? string.Empty;
+                    int type = a.TryGetProperty("type", out JsonElement at) ? at.GetInt32() : 0;
+                    string? url = a.TryGetProperty("url", out JsonElement au) && au.ValueKind != JsonValueKind.Null ? au.GetString() : null;
+                    DateTimeOffset? createdAt = a.TryGetProperty("created_at", out JsonElement ca) && ca.ValueKind == JsonValueKind.Number ? DateTimeOffset.FromUnixTimeMilliseconds(ca.GetInt64()) : null;
+                    activities.Add(new Activity { Name = name, Type = type, Url = url, CreatedAt = createdAt });
+                }
+            }
+
+            DateTimeOffset? since = data.TryGetProperty("since", out JsonElement s) && s.ValueKind == JsonValueKind.Number ? DateTimeOffset.FromUnixTimeMilliseconds(s.GetInt64()) : null;
+
+            PresenceUpdateEvent e = new()
+            {
+                GuildId = guildId,
+                User = user,
+                Status = status,
+                Activities = activities.ToArray(),
+                Since = since
+            };
+            evt?.Invoke(this, e);
+        }
+        catch (Exception ex) { Error?.Invoke(this, ex); }
+    }
+
+    private void TryEmitTypingStartEvent(JsonElement data, EventHandler<TypingStartEvent>? evt)
+    {
+        try
+        {
+            ulong channelId = data.GetProperty("channel_id").GetDiscordId();
+            ulong? guildId = data.TryGetProperty("guild_id", out JsonElement gid) && gid.ValueKind != JsonValueKind.Null ? gid.GetDiscordIdNullable() : null;
+            ulong userId = data.GetProperty("user_id").GetDiscordId();
+            int timestamp = data.TryGetProperty("timestamp", out JsonElement ts) ? ts.GetInt32() : 0;
+
+            DiscordMember? member = null;
+            if (data.TryGetProperty("member", out JsonElement memberData))
+            {
+                if (memberData.TryGetProperty("user", out JsonElement userData))
+                {
+                    DiscordUser user = ParseUser(userData);
+                    ulong[] roles = memberData.TryGetProperty("roles", out JsonElement r) && r.ValueKind == JsonValueKind.Array
+                        ? r.EnumerateArray().Select(static x => x.GetDiscordId()).ToArray()
+                        : [];
+                    string? nick = memberData.TryGetProperty("nick", out JsonElement n) && n.ValueKind != JsonValueKind.Null ? n.GetString() : null;
+                    ulong memberGuildId = guildId ?? 0;
+                    DiscordGuild guild = new() { Id = memberGuildId, Name = string.Empty };
+                    member = new DiscordMember { User = user, Guild = guild, Nick = nick, Roles = roles };
+                }
+            }
+
+            TypingStartEvent e = new()
+            {
+                ChannelId = channelId,
+                GuildId = guildId,
+                UserId = userId,
+                Timestamp = timestamp,
+                Member = member
+            };
+            evt?.Invoke(this, e);
+        }
+        catch (Exception ex) { Error?.Invoke(this, ex); }
+    }
+
+    private void TryEmitWebhooksUpdateEvent(JsonElement data, EventHandler<WebhooksUpdateEvent>? evt)
+    {
+        try
+        {
+            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
+            ulong channelId = data.GetProperty("channel_id").GetDiscordId();
+            WebhooksUpdateEvent e = new() { GuildId = guildId, ChannelId = channelId };
+            evt?.Invoke(this, e);
+        }
+        catch (Exception ex) { Error?.Invoke(this, ex); }
+    }
+
+    private void TryEmitInviteCreateEvent(JsonElement data, EventHandler<InviteCreateEvent>? evt)
+    {
+        try
+        {
+            ulong channelId = data.GetProperty("channel_id").GetDiscordId();
+            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
+            string code = data.GetProperty("code").GetString() ?? string.Empty;
+            DiscordUser inviter = ParseUser(data.GetProperty("inviter"));
+            int? maxUses = data.TryGetProperty("max_uses", out JsonElement mu) && mu.ValueKind != JsonValueKind.Null ? mu.GetInt32() : null;
+            int? maxAge = data.TryGetProperty("max_age", out JsonElement ma) && ma.ValueKind != JsonValueKind.Null ? ma.GetInt32() : null;
+            bool temporary = data.TryGetProperty("temporary", out JsonElement tmp) && tmp.ValueKind == JsonValueKind.True;
+            DateTimeOffset createdAt = DateTimeOffset.Parse(data.GetProperty("created_at").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+            InviteCreateEvent e = new()
+            {
+                ChannelId = channelId,
+                GuildId = guildId,
+                Code = code,
+                Inviter = inviter,
+                MaxUses = maxUses,
+                MaxAge = maxAge,
+                Temporary = temporary,
+                CreatedAt = createdAt
+            };
+            evt?.Invoke(this, e);
+        }
+        catch (Exception ex) { Error?.Invoke(this, ex); }
+    }
+
+    private void TryEmitInviteDeleteEvent(JsonElement data, EventHandler<InviteDeleteEvent>? evt)
+    {
+        try
+        {
+            ulong channelId = data.GetProperty("channel_id").GetDiscordId();
+            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
+            string code = data.GetProperty("code").GetString() ?? string.Empty;
+            InviteDeleteEvent e = new() { ChannelId = channelId, GuildId = guildId, Code = code };
+            evt?.Invoke(this, e);
+        }
+        catch (Exception ex) { Error?.Invoke(this, ex); }
+    }
+
+    private void TryEmitGuildIntegrationsUpdateEvent(JsonElement data, EventHandler<GuildIntegrationsUpdateEvent>? evt)
+    {
+        try
+        {
+            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
+            GuildIntegrationsUpdateEvent e = new() { GuildId = guildId };
             evt?.Invoke(this, e);
         }
         catch (Exception ex) { Error?.Invoke(this, ex); }

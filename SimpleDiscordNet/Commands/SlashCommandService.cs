@@ -135,7 +135,7 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
         try
         {
             InteractionContext ctx = new InteractionContext(rest, e);
-            await ctx.RespondAsync($"❌ Command handler not found: `{path}`", null, true, ct).ConfigureAwait(false);
+            await ctx.RespondAsync($"❌ Command handler not found: `{path}`", null, true, ct: ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -158,7 +158,7 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
                 if (!hasPermission)
                 {
                     logger.Log(LogLevel.Debug, $"User {e.Member?.User?.Id ?? e.Author?.Id} denied permission for command '{top}' in guild {e.GuildId}");
-                    await ctx.RespondAsync("❌ You don't have permission to use this command in this server.", null, true, ct).ConfigureAwait(false);
+                    await ctx.RespondAsync("❌ You don't have permission to use this command in this server.", null, true, ct: ct).ConfigureAwait(false);
                     return;
                 }
             }
@@ -190,7 +190,7 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
                     else
                     {
                         // Send immediate error response
-                        await ctx.RespondAsync($"❌ An error occurred while executing the command.", null, true, ct).ConfigureAwait(false);
+                        await ctx.RespondAsync($"❌ An error occurred while executing the command.", null, true, ct: ct).ConfigureAwait(false);
                     }
                 }
                 catch (Exception responseEx)

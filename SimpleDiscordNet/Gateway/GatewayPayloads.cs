@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SimpleDiscordNet.Gateway;
 
@@ -72,7 +73,9 @@ internal sealed class UpdatePresence
 
 internal sealed class UpdatePresencePayload
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public long? since { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public BotActivity[]? activities { get; set; }
     public string status { get; set; } = "online";
     public bool afk { get; set; }
@@ -82,6 +85,7 @@ public sealed class BotActivity
 {
     public string name { get; set; } = string.Empty;
     public int type { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? url { get; set; }
 
     public BotActivity() { }
@@ -114,5 +118,8 @@ public enum ActivityType
     Streaming = 1,
     Listening = 2,
     Watching = 3,
+    /// <summary>
+    /// Activity type 4 (Custom) is not settable by bots; Discord assigns this internally.
+    /// </summary>
     Competing = 5
 }

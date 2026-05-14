@@ -86,7 +86,7 @@ internal sealed class ComponentService
                         else
                         {
                             // Send immediate error response
-                            await ctx.RespondAsync($"❌ An error occurred while handling this interaction.", null, true, ct).ConfigureAwait(false);
+                            await ctx.RespondAsync($"❌ An error occurred while handling this interaction.", null, true, ct: ct).ConfigureAwait(false);
                         }
                     }
                     catch (Exception responseEx)
@@ -104,7 +104,7 @@ internal sealed class ComponentService
         try
         {
             InteractionContext ctx = new InteractionContext(rest, e);
-            await ctx.RespondAsync($"❌ Component handler not found: `{customId}`", null, true, ct).ConfigureAwait(false);
+            await ctx.RespondAsync($"❌ Component handler not found: `{customId}`", null, true, ct: ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

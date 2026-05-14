@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net.WebSockets;
+using System.Text;
 using System.Text.Json;
 using SimpleDiscordNet.Entities;
 using SimpleDiscordNet.Models;
@@ -10,10 +11,10 @@ namespace SimpleDiscordNet.Gateway;
 
 [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "GatewayClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all gateway payload types.")]
 [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "GatewayClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all gateway payload types.")]
-internal sealed partial class GatewayClient(string token, DiscordIntents intents, JsonSerializerOptions json, int? shardId = null, int? totalShards = null)
+internal sealed partial class GatewayClient(string token, DiscordIntents intents, JsonSerializerOptions json, int? shardId = null, int? totalShards = null, bool enableGatewayDebug = false)
     : IDisposable
 {
-    private ClientWebSocket _ws = new();
+    private volatile ClientWebSocket _ws = new();
     private readonly CancellationTokenSource _internalCts = new();
     private Task? _loopTask;
     private long _seq;
@@ -26,6 +27,7 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
     private volatile bool _autoReconnect = true;
     private int _isReady;
     private readonly SemaphoreSlim _reconnectGate = new(1, 1);
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private CancellationTokenSource? _ctsHeartbeat;
     private readonly object _heartbeatLock = new();
 
@@ -33,6 +35,12 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
     internal int? TotalShards { get; } = totalShards;
 
     internal bool IsReady => Volatile.Read(ref _isReady) == 1;
+
+    private void LogGatewaySend(int opcode, ReadOnlySpan<byte> payload)
+    {
+        if (!enableGatewayDebug) return;
+        Error?.Invoke(this, new InvalidOperationException($"[GW SEND op={opcode}] {Encoding.UTF8.GetString(payload)}"));
+    }
 
     public event EventHandler? Connected;
     public event EventHandler<Exception?>? Disconnected;
@@ -45,59 +53,35 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
     public event EventHandler<DiscordGuild>? GuildUpdate;
     public event EventHandler<ulong>? GuildDelete; // guild id
     public event EventHandler<GuildEmojisUpdateEvent>? GuildEmojisUpdate;
-    #pragma warning disable CS0067
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<VoiceStateUpdateEvent>? VoiceStateUpdate;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<PresenceUpdateEvent>? PresenceUpdate;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<TypingStartEvent>? TypingStart;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<WebhooksUpdateEvent>? WebhooksUpdate;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<InviteCreateEvent>? InviteCreate;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<InviteDeleteEvent>? InviteDelete;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildIntegrationsUpdateEvent>? GuildIntegrationsUpdate;
 
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<AutoModerationRuleCreatedEvent>? AutoModerationRuleCreated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<AutoModerationRuleUpdatedEvent>? AutoModerationRuleUpdated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<AutoModerationRuleDeletedEvent>? AutoModerationRuleDeleted;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
+    public event EventHandler<AutoModerationActionExecutionEvent>? AutoModerationActionExecution;
     public event EventHandler<StageInstanceCreatedEvent>? StageInstanceCreated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<StageInstanceUpdatedEvent>? StageInstanceUpdated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<StageInstanceDeletedEvent>? StageInstanceDeleted;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildScheduledEventCreatedEvent>? GuildScheduledEventCreated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildScheduledEventUpdatedEvent>? GuildScheduledEventUpdated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildScheduledEventDeletedEvent>? GuildScheduledEventDeleted;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
+    public event EventHandler<GuildScheduledEventUserAddedEvent>? GuildScheduledEventUserAdded;
+    public event EventHandler<GuildScheduledEventUserRemovedEvent>? GuildScheduledEventUserRemoved;
     public event EventHandler<IntegrationCreatedEvent>? IntegrationCreated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<IntegrationUpdatedEvent>? IntegrationUpdated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<IntegrationDeletedEvent>? IntegrationDeleted;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<VoiceServerUpdateEvent>? VoiceServerUpdate;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildJoinRequestCreatedEvent>? GuildJoinRequestCreated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildJoinRequestUpdatedEvent>? GuildJoinRequestUpdated;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<GuildJoinRequestDeletedEvent>? GuildJoinRequestDeleted;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<PollVoteAddedEvent>? PollVoteAdded;
-    [SuppressMessage("CodeQuality", "CS0067", Justification = "Event is exposed for external subscribers")]
     public event EventHandler<PollVoteRemovedEvent>? PollVoteRemoved;
-    #pragma warning restore CS0067
 
     public event EventHandler<DiscordChannel>? ChannelCreate;
     public event EventHandler<DiscordChannel>? ChannelUpdate;
@@ -155,9 +139,10 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
             {
                 try { await hbCts.CancelAsync(); } catch { /* ignored */ }
             }
-            if (_ws.State == WebSocketState.Open)
+            ClientWebSocket ws = _ws;
+            if (ws.State == WebSocketState.Open)
             {
-                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "shutdown", CancellationToken.None).ConfigureAwait(false);
+                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "shutdown", CancellationToken.None).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -846,6 +831,142 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
             }
             catch (Exception ex) { Error?.Invoke(this, ex); }
         }
+
+        // Voice events
+        else if (string.Equals(eventName, "VOICE_STATE_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitVoiceStateUpdateEvent(data, VoiceStateUpdate);
+        }
+        else if (string.Equals(eventName, "VOICE_SERVER_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitVoiceServerUpdateEvent(data, VoiceServerUpdate);
+        }
+
+        // Presence events
+        else if (string.Equals(eventName, "PRESENCE_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitPresenceUpdateEvent(data, PresenceUpdate);
+        }
+
+        // Typing events
+        else if (string.Equals(eventName, "TYPING_START", StringComparison.Ordinal))
+        {
+            TryEmitTypingStartEvent(data, TypingStart);
+        }
+
+        // Webhook events
+        else if (string.Equals(eventName, "WEBHOOKS_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitWebhooksUpdateEvent(data, WebhooksUpdate);
+        }
+
+        // Invite events
+        else if (string.Equals(eventName, "INVITE_CREATE", StringComparison.Ordinal))
+        {
+            TryEmitInviteCreateEvent(data, InviteCreate);
+        }
+        else if (string.Equals(eventName, "INVITE_DELETE", StringComparison.Ordinal))
+        {
+            TryEmitInviteDeleteEvent(data, InviteDelete);
+        }
+
+        // Guild integrations
+        else if (string.Equals(eventName, "GUILD_INTEGRATIONS_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitGuildIntegrationsUpdateEvent(data, GuildIntegrationsUpdate);
+        }
+
+        // Auto Moderation events
+        else if (string.Equals(eventName, "AUTO_MODERATION_RULE_CREATE", StringComparison.Ordinal))
+        {
+            TryEmitAutoModerationRuleCreatedEvent(data, AutoModerationRuleCreated);
+        }
+        else if (string.Equals(eventName, "AUTO_MODERATION_RULE_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitAutoModerationRuleUpdatedEvent(data, AutoModerationRuleUpdated);
+        }
+        else if (string.Equals(eventName, "AUTO_MODERATION_RULE_DELETE", StringComparison.Ordinal))
+        {
+            TryEmitAutoModerationRuleDeletedEvent(data, AutoModerationRuleDeleted);
+        }
+        else if (string.Equals(eventName, "AUTO_MODERATION_ACTION_EXECUTION", StringComparison.Ordinal))
+        {
+            TryEmitAutoModerationActionExecutionEvent(data, AutoModerationActionExecution);
+        }
+
+        // Stage Instance events
+        else if (string.Equals(eventName, "STAGE_INSTANCE_CREATE", StringComparison.Ordinal))
+        {
+            TryEmitStageInstanceCreatedEvent(data, StageInstanceCreated);
+        }
+        else if (string.Equals(eventName, "STAGE_INSTANCE_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitStageInstanceUpdatedEvent(data, StageInstanceUpdated);
+        }
+        else if (string.Equals(eventName, "STAGE_INSTANCE_DELETE", StringComparison.Ordinal))
+        {
+            TryEmitStageInstanceDeletedEvent(data, StageInstanceDeleted);
+        }
+
+        // Guild Scheduled Event events
+        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_CREATE", StringComparison.Ordinal))
+        {
+            TryEmitGuildScheduledEventCreatedEvent(data, GuildScheduledEventCreated);
+        }
+        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitGuildScheduledEventUpdatedEvent(data, GuildScheduledEventUpdated);
+        }
+        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_DELETE", StringComparison.Ordinal))
+        {
+            TryEmitGuildScheduledEventDeletedEvent(data, GuildScheduledEventDeleted);
+        }
+        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_USER_ADD", StringComparison.Ordinal))
+        {
+            TryEmitGuildScheduledEventUserAddedEvent(data, GuildScheduledEventUserAdded);
+        }
+        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_USER_REMOVE", StringComparison.Ordinal))
+        {
+            TryEmitGuildScheduledEventUserRemovedEvent(data, GuildScheduledEventUserRemoved);
+        }
+
+        // Integration events
+        else if (string.Equals(eventName, "INTEGRATION_CREATE", StringComparison.Ordinal))
+        {
+            TryEmitIntegrationCreatedEvent(data, IntegrationCreated);
+        }
+        else if (string.Equals(eventName, "INTEGRATION_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitIntegrationUpdatedEvent(data, IntegrationUpdated);
+        }
+        else if (string.Equals(eventName, "INTEGRATION_DELETE", StringComparison.Ordinal))
+        {
+            TryEmitIntegrationDeletedEvent(data, IntegrationDeleted);
+        }
+
+        // Guild Join Request events
+        else if (string.Equals(eventName, "GUILD_JOIN_REQUEST_CREATE", StringComparison.Ordinal))
+        {
+            TryEmitGuildJoinRequestCreatedEvent(data, GuildJoinRequestCreated);
+        }
+        else if (string.Equals(eventName, "GUILD_JOIN_REQUEST_UPDATE", StringComparison.Ordinal))
+        {
+            TryEmitGuildJoinRequestUpdatedEvent(data, GuildJoinRequestUpdated);
+        }
+        else if (string.Equals(eventName, "GUILD_JOIN_REQUEST_DELETE", StringComparison.Ordinal))
+        {
+            TryEmitGuildJoinRequestDeletedEvent(data, GuildJoinRequestDeleted);
+        }
+
+        // Poll Vote events
+        else if (string.Equals(eventName, "MESSAGE_POLL_VOTE_ADD", StringComparison.Ordinal))
+        {
+            TryEmitPollVoteAddedEvent(data, PollVoteAdded);
+        }
+        else if (string.Equals(eventName, "MESSAGE_POLL_VOTE_REMOVE", StringComparison.Ordinal))
+        {
+            TryEmitPollVoteRemovedEvent(data, PollVoteRemoved);
+        }
     }
 
     public void Dispose()
@@ -864,9 +985,11 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
             try { _loopTask.Wait(TimeSpan.FromSeconds(5)); } catch { /* Task may fault or timeout, safe to ignore */ }
             try { _loopTask.Dispose(); } catch { /* Task disposal can throw, safe to ignore */ }
         }
-        try { _ws.Dispose(); } catch { /* WebSocket disposal can throw, safe to ignore during cleanup */ }
+        ClientWebSocket ws = _ws;
+        try { ws.Dispose(); } catch { /* WebSocket disposal can throw, safe to ignore during cleanup */ }
         try { _internalCts.Dispose(); } catch { /* CTS disposal can throw, safe to ignore during cleanup */ }
         try { _reconnectGate.Dispose(); } catch { /* SemaphoreSlim disposal can throw, safe to ignore during cleanup */ }
+        try { _writeLock.Dispose(); } catch { /* SemaphoreSlim disposal can throw, safe to ignore during cleanup */ }
         try { hbCts?.Dispose(); } catch { /* CTS disposal can throw, safe to ignore during cleanup */ }
     }
 }

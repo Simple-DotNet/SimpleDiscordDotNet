@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.10.0</Version>
+        <Version>1.10.9</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.9.0: Major API expansion - bot presence/status API (SetGameAsync, SetWatchingAsync, etc.), context menu commands ([UserContextMenu], [MessageContextMenu]), autocomplete handlers ([Autocomplete]), global command sync, guild management (ModifyGuildAsync, LeaveGuildAsync, PruneMembersAsync), webhook/emoji/sticker/invite management, message replies and forum posts, interaction followup editing, ulong ID overloads for all methods. Fixed sharding NRE in LoadCompleteGuildDataAsync. Added full Discord REST API coverage.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.10.9: Interaction context now supports file attachments on responses and followups. Response methods auto-defer when files are present (Discord doesn't support files on initial interaction responses). Webhook followup/edit/update methods support multipart file uploads. Added allowed_mentions propagation from MessageBuilder to all interaction responses.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>

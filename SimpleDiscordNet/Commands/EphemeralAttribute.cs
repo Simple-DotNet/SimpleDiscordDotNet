@@ -3,7 +3,8 @@ namespace SimpleDiscordNet.Commands;
 /// <summary>
 /// Marks a command handler to use ephemeral (private) responses.
 /// When auto-defer is enabled, the defer will use ephemeral: true.
-/// All responses from this handler will only be visible to the user who triggered the interaction.
+/// Followup messages sent via FollowupAsync/RespondAsync will default to ephemeral
+/// when this attribute is present. Use ephemeral: false to override on a per-message basis.
 ///
 /// Can be applied to individual methods or entire classes.
 /// </summary>

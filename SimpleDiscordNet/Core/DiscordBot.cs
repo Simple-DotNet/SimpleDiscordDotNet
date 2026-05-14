@@ -55,6 +55,7 @@ public sealed class DiscordBot : IDiscordBot
     private readonly string? _coordinatorUrl;
     private readonly string? _workerListenUrl;
     private readonly string? _workerId;
+    private readonly bool _enableGatewayDebug;
 
     private int _started;
     private volatile int _disposedState;
@@ -87,7 +88,8 @@ public sealed class DiscordBot : IDiscordBot
         string? workerListenUrl,
         string? workerId,
         bool isOriginalCoordinator,
-        SynchronizationContext? synchronizationContext)
+        SynchronizationContext? synchronizationContext,
+        bool enableGatewayDebug)
     {
         _token = token;
         _intents = intents;
@@ -108,6 +110,7 @@ public sealed class DiscordBot : IDiscordBot
         _coordinatorUrl = coordinatorUrl;
         _workerListenUrl = workerListenUrl;
         _workerId = workerId;
+        _enableGatewayDebug = enableGatewayDebug;
 
         HttpClient httpClient = new(new SocketsHttpHandler
         {
@@ -128,7 +131,7 @@ public sealed class DiscordBot : IDiscordBot
         {
             case ShardMode.SingleProcess when shardId.HasValue && totalShards.HasValue:
                 // Single process with explicit sharding
-                _shardManager = new ShardManager(token, intents, json, logger);
+                _shardManager = new ShardManager(token, intents, json, logger, enableGatewayDebug);
                 break;
 
             case ShardMode.Distributed when isOriginalCoordinator:
@@ -139,12 +142,12 @@ public sealed class DiscordBot : IDiscordBot
             case ShardMode.Distributed:
                 // Distributed worker
                 workerId ??= $"{Environment.MachineName}-{Guid.NewGuid():N}";
-                _worker = new DistributedWorker(token, intents, json, logger, workerId, workerListenUrl ?? "http://+:8080/", coordinatorUrl ?? throw new ArgumentNullException(nameof(coordinatorUrl)));
+                _worker = new DistributedWorker(token, intents, json, logger, workerId, workerListenUrl ?? "http://+:8080/", coordinatorUrl ?? throw new ArgumentNullException(nameof(coordinatorUrl)), enableGatewayDebug);
                 break;
 
             default:
                 // Default: Single gateway (no sharding)
-                _gateway = new GatewayClient(token, intents, json);
+                _gateway = new GatewayClient(token, intents, json, enableGatewayDebug: enableGatewayDebug);
                 break;
         }
 
@@ -250,6 +253,13 @@ public sealed class DiscordBot : IDiscordBot
                     OnGuildCreate, OnGuildUpdate, OnGuildDelete, OnGuildEmojisUpdate,
                     OnVoiceStateUpdate, OnPresenceUpdate, OnTypingStart, OnWebhooksUpdate,
                     OnInviteCreate, OnInviteDelete, OnGuildIntegrationsUpdate,
+                    OnAutoModerationRuleCreated, OnAutoModerationRuleUpdated, OnAutoModerationRuleDeleted, OnAutoModerationActionExecution,
+                    OnStageInstanceCreated, OnStageInstanceUpdated, OnStageInstanceDeleted,
+                    OnGuildScheduledEventCreated, OnGuildScheduledEventUpdated, OnGuildScheduledEventDeleted, OnGuildScheduledEventUserAdded, OnGuildScheduledEventUserRemoved,
+                    OnIntegrationCreated, OnIntegrationUpdated, OnIntegrationDeleted,
+                    OnVoiceServerUpdate,
+                    OnGuildJoinRequestCreated, OnGuildJoinRequestUpdated, OnGuildJoinRequestDeleted,
+                    OnPollVoteAdded, OnPollVoteRemoved,
                     OnChannelCreate, OnChannelUpdate, OnChannelDelete,
                     OnGuildRoleCreate, OnGuildRoleUpdate, OnGuildRoleDelete,
                     OnThreadCreate, OnThreadUpdate, OnThreadDelete,
@@ -277,6 +287,13 @@ public sealed class DiscordBot : IDiscordBot
                             OnGuildCreate, OnGuildUpdate, OnGuildDelete, OnGuildEmojisUpdate,
                             OnVoiceStateUpdate, OnPresenceUpdate, OnTypingStart, OnWebhooksUpdate,
                             OnInviteCreate, OnInviteDelete, OnGuildIntegrationsUpdate,
+                            OnAutoModerationRuleCreated, OnAutoModerationRuleUpdated, OnAutoModerationRuleDeleted, OnAutoModerationActionExecution,
+                            OnStageInstanceCreated, OnStageInstanceUpdated, OnStageInstanceDeleted,
+                            OnGuildScheduledEventCreated, OnGuildScheduledEventUpdated, OnGuildScheduledEventDeleted, OnGuildScheduledEventUserAdded, OnGuildScheduledEventUserRemoved,
+                            OnIntegrationCreated, OnIntegrationUpdated, OnIntegrationDeleted,
+                            OnVoiceServerUpdate,
+                            OnGuildJoinRequestCreated, OnGuildJoinRequestUpdated, OnGuildJoinRequestDeleted,
+                            OnPollVoteAdded, OnPollVoteRemoved,
                             OnChannelCreate, OnChannelUpdate, OnChannelDelete,
                             OnGuildRoleCreate, OnGuildRoleUpdate, OnGuildRoleDelete,
                             OnThreadCreate, OnThreadUpdate, OnThreadDelete,
@@ -357,10 +374,9 @@ public sealed class DiscordBot : IDiscordBot
             throw new InvalidOperationException("No generated command manifests were found. Ensure the source generator is referenced in the application project.");
 
         ApplicationCommandDefinition[] typed = _generatedManifests.SelectMany(m => m.Definitions).ToArray();
-        object[] defs = typed.Cast<object>().ToArray();
         foreach (string gid in enumerable)
         {
-            await _rest.PutGuildCommandsAsync(app.Id, gid, defs, ct).ConfigureAwait(false);
+            await _rest.PutGuildCommandsAsync(app.Id, gid, typed, ct).ConfigureAwait(false);
         }
     }
 
@@ -377,8 +393,7 @@ public sealed class DiscordBot : IDiscordBot
             throw new InvalidOperationException("No generated command manifests were found. Ensure the source generator is referenced in the application project.");
 
         ApplicationCommandDefinition[] typed = _generatedManifests.SelectMany(m => m.Definitions).ToArray();
-        object[] defs = typed.Cast<object>().ToArray();
-        await _rest.PutGlobalCommandsAsync(app.Id, defs, ct).ConfigureAwait(false);
+        await _rest.PutGlobalCommandsAsync(app.Id, typed, ct).ConfigureAwait(false);
     }
 
     // ----- Convenience REST APIs -----
@@ -1547,18 +1562,18 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// Gets all webhooks for a channel.
     /// Example: foreach (var wh in await bot.GetChannelWebhooksAsync(channelId)) { }
     /// </summary>
-    public async Task<IEnumerable<object>> GetChannelWebhooksAsync(string channelId, CancellationToken ct = default)
+    public async Task<IEnumerable<DiscordWebhook>> GetChannelWebhooksAsync(string channelId, CancellationToken ct = default)
     {
-        var result = await _rest.GetChannelWebhooksAsync<object[]>(channelId, ct).ConfigureAwait(false);
+        var result = await _rest.GetChannelWebhooksAsync<DiscordWebhook[]>(channelId, ct).ConfigureAwait(false);
         return result ?? [];
     }
 
     /// <summary>
     /// Gets all webhooks for a guild.
     /// </summary>
-    public async Task<IEnumerable<object>> GetGuildWebhooksAsync(string guildId, CancellationToken ct = default)
+    public async Task<IEnumerable<DiscordWebhook>> GetGuildWebhooksAsync(string guildId, CancellationToken ct = default)
     {
-        var result = await _rest.GetGuildWebhooksAsync<object[]>(guildId, ct).ConfigureAwait(false);
+        var result = await _rest.GetGuildWebhooksAsync<DiscordWebhook[]>(guildId, ct).ConfigureAwait(false);
         return result ?? [];
     }
 
@@ -1568,7 +1583,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     public Task ModifyWebhookAsync(string webhookId, string? name = null, string? avatarUrl = null, CancellationToken ct = default)
     {
         var payload = new WebhookRequest { name = name, avatar = avatarUrl };
-        return _rest.PatchWebhookAsync<object>(webhookId, payload, ct);
+        return _rest.PatchWebhookAsync<EmptyPayload>(webhookId, payload, ct);
     }
 
     /// <summary>
@@ -1609,28 +1624,28 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// <summary>
     /// Gets all stickers for a guild.
     /// </summary>
-    public async Task<IEnumerable<object>> GetGuildStickersAsync(string guildId, CancellationToken ct = default)
+    public async Task<IEnumerable<DiscordSticker>> GetGuildStickersAsync(string guildId, CancellationToken ct = default)
     {
-        var result = await _rest.GetGuildStickersAsync<object[]>(guildId, ct).ConfigureAwait(false);
+        var result = await _rest.GetGuildStickersAsync<DiscordSticker[]>(guildId, ct).ConfigureAwait(false);
         return result ?? [];
     }
 
     /// <summary>
     /// Creates a sticker in a guild.
     /// </summary>
-    public async Task<object?> CreateStickerAsync(string guildId, string name, string description, string tags, string fileData, CancellationToken ct = default)
+    public async Task<DiscordSticker?> CreateStickerAsync(string guildId, string name, string description, string tags, string fileData, CancellationToken ct = default)
     {
         var payload = new CreateStickerRequest { name = name, description = description, tags = tags, file = fileData };
-        return await _rest.PostGuildStickerAsync<object>(guildId, payload, ct).ConfigureAwait(false);
+        return await _rest.PostGuildStickerAsync<DiscordSticker>(guildId, payload, ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Modifies a guild sticker.
     /// </summary>
-    public async Task<object?> ModifyStickerAsync(string guildId, string stickerId, string? name = null, string? description = null, string? tags = null, CancellationToken ct = default)
+    public async Task<DiscordSticker?> ModifyStickerAsync(string guildId, string stickerId, string? name = null, string? description = null, string? tags = null, CancellationToken ct = default)
     {
         var payload = new ModifyStickerRequest { name = name, description = description, tags = tags };
-        return await _rest.PatchGuildStickerAsync<object>(guildId, stickerId, payload, ct).ConfigureAwait(false);
+        return await _rest.PatchGuildStickerAsync<DiscordSticker>(guildId, stickerId, payload, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1644,23 +1659,23 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// <summary>
     /// Gets all auto moderation rules for a guild.
     /// </summary>
-    public async Task<IEnumerable<object>> GetAutoModerationRulesAsync(string guildId, CancellationToken ct = default)
+    public async Task<IEnumerable<DiscordAutoModerationRule>> GetAutoModerationRulesAsync(string guildId, CancellationToken ct = default)
     {
-        var result = await _rest.GetGuildAutoModerationRulesAsync<object[]>(guildId, ct).ConfigureAwait(false);
+        var result = await _rest.GetGuildAutoModerationRulesAsync<DiscordAutoModerationRule[]>(guildId, ct).ConfigureAwait(false);
         return result ?? [];
     }
 
     /// <summary>
     /// Creates an auto moderation rule.
     /// </summary>
-    public async Task<object?> CreateAutoModerationRuleAsync(string guildId, object rulePayload, CancellationToken ct = default)
-        => await _rest.PostGuildAutoModerationRuleAsync<object>(guildId, rulePayload, ct).ConfigureAwait(false);
+    public async Task<DiscordAutoModerationRule?> CreateAutoModerationRuleAsync(string guildId, object rulePayload, CancellationToken ct = default)
+        => await _rest.PostGuildAutoModerationRuleAsync<DiscordAutoModerationRule>(guildId, rulePayload, ct).ConfigureAwait(false);
 
     /// <summary>
     /// Modifies an auto moderation rule.
     /// </summary>
-    public async Task<object?> ModifyAutoModerationRuleAsync(string guildId, string ruleId, object rulePayload, CancellationToken ct = default)
-        => await _rest.PatchGuildAutoModerationRuleAsync<object>(guildId, ruleId, rulePayload, ct).ConfigureAwait(false);
+    public async Task<DiscordAutoModerationRule?> ModifyAutoModerationRuleAsync(string guildId, string ruleId, object rulePayload, CancellationToken ct = default)
+        => await _rest.PatchGuildAutoModerationRuleAsync<DiscordAutoModerationRule>(guildId, ruleId, rulePayload, ct).ConfigureAwait(false);
 
     /// <summary>
     /// Deletes an auto moderation rule.
@@ -1673,19 +1688,19 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// <summary>
     /// Creates a stage instance.
     /// </summary>
-    public async Task<object?> CreateStageInstanceAsync(string channelId, string topic, int? privacyLevel = null, CancellationToken ct = default)
+    public async Task<DiscordStageInstance?> CreateStageInstanceAsync(string channelId, string topic, int? privacyLevel = null, CancellationToken ct = default)
     {
         var payload = new CreateStageInstanceRequest { channel_id = channelId, topic = topic, privacy_level = privacyLevel ?? 2 };
-        return await _rest.PostStageInstanceAsync<object>(payload, ct).ConfigureAwait(false);
+        return await _rest.PostStageInstanceAsync<DiscordStageInstance>(payload, ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Modifies a stage instance.
     /// </summary>
-    public async Task<object?> ModifyStageInstanceAsync(string channelId, string? topic = null, int? privacyLevel = null, CancellationToken ct = default)
+    public async Task<DiscordStageInstance?> ModifyStageInstanceAsync(string channelId, string? topic = null, int? privacyLevel = null, CancellationToken ct = default)
     {
         var payload = new ModifyStageInstanceRequest { topic = topic, privacy_level = privacyLevel };
-        return await _rest.PatchStageInstanceAsync<object>(channelId, payload, ct).ConfigureAwait(false);
+        return await _rest.PatchStageInstanceAsync<DiscordStageInstance>(channelId, payload, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1699,14 +1714,14 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// <summary>
     /// Creates a guild scheduled event.
     /// </summary>
-    public async Task<object?> CreateScheduledEventAsync(string guildId, object eventPayload, CancellationToken ct = default)
-        => await _rest.PostGuildScheduledEventAsync<object>(guildId, eventPayload, ct).ConfigureAwait(false);
+    public async Task<DiscordScheduledEvent?> CreateScheduledEventAsync(string guildId, object eventPayload, CancellationToken ct = default)
+        => await _rest.PostGuildScheduledEventAsync<DiscordScheduledEvent>(guildId, eventPayload, ct).ConfigureAwait(false);
 
     /// <summary>
     /// Modifies a guild scheduled event.
     /// </summary>
-    public async Task<object?> ModifyScheduledEventAsync(string guildId, string eventId, object eventPayload, CancellationToken ct = default)
-        => await _rest.PatchGuildScheduledEventAsync<object>(guildId, eventId, eventPayload, ct).ConfigureAwait(false);
+    public async Task<DiscordScheduledEvent?> ModifyScheduledEventAsync(string guildId, string eventId, object eventPayload, CancellationToken ct = default)
+        => await _rest.PatchGuildScheduledEventAsync<DiscordScheduledEvent>(guildId, eventId, eventPayload, ct).ConfigureAwait(false);
 
     /// <summary>
     /// Deletes a guild scheduled event.
@@ -1720,27 +1735,27 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// Creates an invite for a channel.
     /// Example: await bot.CreateInviteAsync(channelId, maxAge: 86400, maxUses: 10);
     /// </summary>
-    public async Task<object?> CreateInviteAsync(string channelId, int? maxAge = null, int? maxUses = null, bool? temporary = null, bool? unique = null, CancellationToken ct = default)
+    public async Task<DiscordInvite?> CreateInviteAsync(string channelId, int? maxAge = null, int? maxUses = null, bool? temporary = null, bool? unique = null, CancellationToken ct = default)
     {
         var payload = new CreateInviteRequest { max_age = maxAge, max_uses = maxUses, temporary = temporary, unique = unique };
-        return await _rest.PostChannelInviteAsync<object>(channelId, payload, ct).ConfigureAwait(false);
+        return await _rest.PostChannelInviteAsync<DiscordInvite>(channelId, payload, ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Gets all invites for a channel.
     /// </summary>
-    public async Task<IEnumerable<object>> GetChannelInvitesAsync(string channelId, CancellationToken ct = default)
+    public async Task<IEnumerable<DiscordInvite>> GetChannelInvitesAsync(string channelId, CancellationToken ct = default)
     {
-        var result = await _rest.GetChannelInvitesAsync<object[]>(channelId, ct).ConfigureAwait(false);
+        var result = await _rest.GetChannelInvitesAsync<DiscordInvite[]>(channelId, ct).ConfigureAwait(false);
         return result ?? [];
     }
 
     /// <summary>
     /// Gets all invites for a guild.
     /// </summary>
-    public async Task<IEnumerable<object>> GetGuildInvitesAsync(string guildId, CancellationToken ct = default)
+    public async Task<IEnumerable<DiscordInvite>> GetGuildInvitesAsync(string guildId, CancellationToken ct = default)
     {
-        var result = await _rest.GetGuildInvitesAsync<object[]>(guildId, ct).ConfigureAwait(false);
+        var result = await _rest.GetGuildInvitesAsync<DiscordInvite[]>(guildId, ct).ConfigureAwait(false);
         return result ?? [];
     }
 
@@ -1803,50 +1818,50 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// Sets the bot's presence to "Playing {name}".
     /// Example: await bot.SetGameAsync("Minecraft");
     /// </summary>
-    public async Task SetGameAsync(string name)
+    public async Task SetGameAsync(string name, string status = "online")
     {
         BotActivity[] activities = [BotActivity.Game(name)];
-        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+        await BroadcastPresenceAsync(status, activities).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Sets the bot's presence to "Watching {name}".
     /// Example: await bot.SetWatchingAsync("YouTube");
     /// </summary>
-    public async Task SetWatchingAsync(string name)
+    public async Task SetWatchingAsync(string name, string status = "online")
     {
         BotActivity[] activities = [BotActivity.Watching(name)];
-        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+        await BroadcastPresenceAsync(status, activities).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Sets the bot's presence to "Listening to {name}".
     /// Example: await bot.SetListeningAsync("Spotify");
     /// </summary>
-    public async Task SetListeningAsync(string name)
+    public async Task SetListeningAsync(string name, string status = "online")
     {
         BotActivity[] activities = [BotActivity.Listening(name)];
-        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+        await BroadcastPresenceAsync(status, activities).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Sets the bot's presence to "Streaming {name}" with a Twitch/YouTube URL.
     /// Example: await bot.SetStreamingAsync("Live coding!", "https://twitch.tv/myChannel");
     /// </summary>
-    public async Task SetStreamingAsync(string name, string url)
+    public async Task SetStreamingAsync(string name, string url, string status = "online")
     {
         BotActivity[] activities = [BotActivity.Streaming(name, url)];
-        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+        await BroadcastPresenceAsync(status, activities).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Sets the bot's presence to "Competing in {name}".
     /// Example: await bot.SetCompetingAsync("a tournament");
     /// </summary>
-    public async Task SetCompetingAsync(string name)
+    public async Task SetCompetingAsync(string name, string status = "online")
     {
         BotActivity[] activities = [BotActivity.Competing(name)];
-        await BroadcastPresenceAsync("online", activities).ConfigureAwait(false);
+        await BroadcastPresenceAsync(status, activities).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -2116,6 +2131,111 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     private void OnGuildIntegrationsUpdate(object? sender, GuildIntegrationsUpdateEvent e)
     {
         DiscordEvents.RaiseGuildIntegrationsUpdated(this, e);
+    }
+
+    private void OnAutoModerationRuleCreated(object? sender, AutoModerationRuleCreatedEvent e)
+    {
+        DiscordEvents.RaiseAutoModerationRuleCreated(this, e);
+    }
+
+    private void OnAutoModerationRuleUpdated(object? sender, AutoModerationRuleUpdatedEvent e)
+    {
+        DiscordEvents.RaiseAutoModerationRuleUpdated(this, e);
+    }
+
+    private void OnAutoModerationRuleDeleted(object? sender, AutoModerationRuleDeletedEvent e)
+    {
+        DiscordEvents.RaiseAutoModerationRuleDeleted(this, e);
+    }
+
+    private void OnAutoModerationActionExecution(object? sender, AutoModerationActionExecutionEvent e)
+    {
+        DiscordEvents.RaiseAutoModerationActionExecution(this, e);
+    }
+
+    private void OnStageInstanceCreated(object? sender, StageInstanceCreatedEvent e)
+    {
+        DiscordEvents.RaiseStageInstanceCreated(this, e);
+    }
+
+    private void OnStageInstanceUpdated(object? sender, StageInstanceUpdatedEvent e)
+    {
+        DiscordEvents.RaiseStageInstanceUpdated(this, e);
+    }
+
+    private void OnStageInstanceDeleted(object? sender, StageInstanceDeletedEvent e)
+    {
+        DiscordEvents.RaiseStageInstanceDeleted(this, e);
+    }
+
+    private void OnGuildScheduledEventCreated(object? sender, GuildScheduledEventCreatedEvent e)
+    {
+        DiscordEvents.RaiseGuildScheduledEventCreated(this, e);
+    }
+
+    private void OnGuildScheduledEventUpdated(object? sender, GuildScheduledEventUpdatedEvent e)
+    {
+        DiscordEvents.RaiseGuildScheduledEventUpdated(this, e);
+    }
+
+    private void OnGuildScheduledEventDeleted(object? sender, GuildScheduledEventDeletedEvent e)
+    {
+        DiscordEvents.RaiseGuildScheduledEventDeleted(this, e);
+    }
+
+    private void OnGuildScheduledEventUserAdded(object? sender, GuildScheduledEventUserAddedEvent e)
+    {
+        DiscordEvents.RaiseGuildScheduledEventUserAdded(this, e);
+    }
+
+    private void OnGuildScheduledEventUserRemoved(object? sender, GuildScheduledEventUserRemovedEvent e)
+    {
+        DiscordEvents.RaiseGuildScheduledEventUserRemoved(this, e);
+    }
+
+    private void OnIntegrationCreated(object? sender, IntegrationCreatedEvent e)
+    {
+        DiscordEvents.RaiseIntegrationCreated(this, e);
+    }
+
+    private void OnIntegrationUpdated(object? sender, IntegrationUpdatedEvent e)
+    {
+        DiscordEvents.RaiseIntegrationUpdated(this, e);
+    }
+
+    private void OnIntegrationDeleted(object? sender, IntegrationDeletedEvent e)
+    {
+        DiscordEvents.RaiseIntegrationDeleted(this, e);
+    }
+
+    private void OnVoiceServerUpdate(object? sender, VoiceServerUpdateEvent e)
+    {
+        DiscordEvents.RaiseVoiceServerUpdated(this, e);
+    }
+
+    private void OnGuildJoinRequestCreated(object? sender, GuildJoinRequestCreatedEvent e)
+    {
+        DiscordEvents.RaiseGuildJoinRequestCreated(this, e);
+    }
+
+    private void OnGuildJoinRequestUpdated(object? sender, GuildJoinRequestUpdatedEvent e)
+    {
+        DiscordEvents.RaiseGuildJoinRequestUpdated(this, e);
+    }
+
+    private void OnGuildJoinRequestDeleted(object? sender, GuildJoinRequestDeletedEvent e)
+    {
+        DiscordEvents.RaiseGuildJoinRequestDeleted(this, e);
+    }
+
+    private void OnPollVoteAdded(object? sender, PollVoteAddedEvent e)
+    {
+        DiscordEvents.RaisePollVoteAdded(this, e);
+    }
+
+    private void OnPollVoteRemoved(object? sender, PollVoteRemovedEvent e)
+    {
+        DiscordEvents.RaisePollVoteRemoved(this, e);
     }
 
     private void OnChannelCreate(object? sender, DiscordChannel ch)
@@ -2406,6 +2526,41 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
         _gateway.InviteDelete += OnInviteDelete;
         _gateway.GuildIntegrationsUpdate += OnGuildIntegrationsUpdate;
 
+        // Auto Moderation events
+        _gateway.AutoModerationRuleCreated += OnAutoModerationRuleCreated;
+        _gateway.AutoModerationRuleUpdated += OnAutoModerationRuleUpdated;
+        _gateway.AutoModerationRuleDeleted += OnAutoModerationRuleDeleted;
+        _gateway.AutoModerationActionExecution += OnAutoModerationActionExecution;
+
+        // Stage Instance events
+        _gateway.StageInstanceCreated += OnStageInstanceCreated;
+        _gateway.StageInstanceUpdated += OnStageInstanceUpdated;
+        _gateway.StageInstanceDeleted += OnStageInstanceDeleted;
+
+        // Guild Scheduled Event events
+        _gateway.GuildScheduledEventCreated += OnGuildScheduledEventCreated;
+        _gateway.GuildScheduledEventUpdated += OnGuildScheduledEventUpdated;
+        _gateway.GuildScheduledEventDeleted += OnGuildScheduledEventDeleted;
+        _gateway.GuildScheduledEventUserAdded += OnGuildScheduledEventUserAdded;
+        _gateway.GuildScheduledEventUserRemoved += OnGuildScheduledEventUserRemoved;
+
+        // Integration events
+        _gateway.IntegrationCreated += OnIntegrationCreated;
+        _gateway.IntegrationUpdated += OnIntegrationUpdated;
+        _gateway.IntegrationDeleted += OnIntegrationDeleted;
+
+        // Voice Server events
+        _gateway.VoiceServerUpdate += OnVoiceServerUpdate;
+
+        // Guild Join Request events
+        _gateway.GuildJoinRequestCreated += OnGuildJoinRequestCreated;
+        _gateway.GuildJoinRequestUpdated += OnGuildJoinRequestUpdated;
+        _gateway.GuildJoinRequestDeleted += OnGuildJoinRequestDeleted;
+
+        // Poll Vote events
+        _gateway.PollVoteAdded += OnPollVoteAdded;
+        _gateway.PollVoteRemoved += OnPollVoteRemoved;
+
         // Channel events
         _gateway.ChannelCreate += OnChannelCreate;
         _gateway.ChannelUpdate += OnChannelUpdate;
@@ -2521,7 +2676,8 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
             options.WorkerListenUrl,
             options.WorkerId,
             options.IsOriginalCoordinator,
-            options.SynchronizationContext);
+            options.SynchronizationContext,
+            options.EnableGatewayDebug);
 
         return bot;
     }
@@ -2553,6 +2709,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
         private string? _workerId;
         private bool _isOriginalCoordinator;
         private SynchronizationContext? _synchronizationContext;
+        private bool _enableGatewayDebug;
 
         /// <summary>
         /// Sets the bot token used for authentication.
@@ -2721,6 +2878,17 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
         }
 
         /// <summary>
+        /// Enables debug logging of all outgoing gateway payloads via the Error event.
+        /// Default is false. Useful for diagnosing Discord 4002 or other gateway issues.
+        /// Example: builder.WithGatewayDebug()
+        /// </summary>
+        public Builder WithGatewayDebug()
+        {
+            _enableGatewayDebug = true;
+            return this;
+        }
+
+        /// <summary>
         /// Builds a configured <see cref="DiscordBot"/> instance.
         /// Example: var bot = builder.Build();
         /// </summary>
@@ -2730,7 +2898,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
                 throw new InvalidOperationException("Token is required");
 
             DiscordBot bot = new(_token!, _intents, _json, _logger, _timeProvider, _preloadGuilds, _preloadChannels, _preloadMembers, _autoLoadFullGuildData, _developmentMode, _developmentGuildIds,
-                _shardMode, _shardId, _totalShards, _coordinatorUrl, _workerListenUrl, _workerId, _isOriginalCoordinator, _synchronizationContext);
+                _shardMode, _shardId, _totalShards, _coordinatorUrl, _workerListenUrl, _workerId, _isOriginalCoordinator, _synchronizationContext, _enableGatewayDebug);
 
             // Auto-register any manifests provided by source-generated initializers
             foreach (IGeneratedManifestProvider provider in GeneratedRegistry.Providers)
