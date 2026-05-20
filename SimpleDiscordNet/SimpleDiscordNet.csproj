@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.10.9</Version>
+        <Version>1.10.10</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,12 +24,14 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.10.9: Interaction context now supports file attachments on responses and followups. Response methods auto-defer when files are present (Discord doesn't support files on initial interaction responses). Webhook followup/edit/update methods support multipart file uploads. Added allowed_mentions propagation from MessageBuilder to all interaction responses.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.10.10: Fixed deserialization crash when fetching DM channels — DiscordChannel.Name is no longer `required`, defaulting to string.Empty for DM/GroupDM channels that omit the name field from API responses.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
         <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
         <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+        <Configurations>Release;Debug</Configurations>
+        <Platforms>x64</Platforms>
     </PropertyGroup>
 
     <ItemGroup>

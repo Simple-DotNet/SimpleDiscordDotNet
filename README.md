@@ -130,6 +130,10 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
+### v1.10.10 - DM Channel Deserialization Fix
+- **DM Channel Fix** — `DiscordChannel.Name` is no longer marked `required`, defaulting to `string.Empty`. DM/GroupDM channels omit `name` from API responses, which previously caused deserialization crashes in `SendDMAsync`, `GetChannelAsync`, and interaction resolved channel data.
+- ✅ **0 breaking changes** — `Name` still returns `string` (non-nullable). Existing code setting `Name` continues to work unchanged.
+
 ### v1.10.9 - File Attachments on Interaction Responses & Followups
 - **File Attachments on Responses** — `RespondAsync`, `FollowupAsync`, `EditFollowupAsync`, and `UpdateMessageAsync` now support file attachments via `MessageBuilder.AddFile()` or direct `fileName`/`fileData` parameters. The SDK automatically defers then sends files as followups when used on initial interaction responses (Discord does not support files on type 4/7 callbacks).
 - **File Attachments on Followups & Edits** — `FollowupAsync(MessageBuilder)`, `EditFollowupAsync(string, MessageBuilder)`, and `EditOriginalResponseAsync(MessageBuilder)` new overloads support multipart file uploads via webhook endpoints, including PATCH multipart for editing messages with attachments.

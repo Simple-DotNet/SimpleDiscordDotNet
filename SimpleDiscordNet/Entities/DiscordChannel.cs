@@ -24,7 +24,7 @@ public enum ChannelType
 public sealed class DiscordChannel
 {
     public required ulong Id { get; init; }
-    public required string Name { get; init; }
+    public string Name { get; init; } = string.Empty;
     public required int Type { get; init; }
 
     /// <summary>The guild this channel belongs to. Null for DM channels.</summary>
