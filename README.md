@@ -130,6 +130,16 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
+### v1.10.12 - Gateway Reconnect Hardening & Invite Event Fixes
+- **Non-Recoverable Close Code Protection** — Gateway now detects non-recoverable Discord close codes (4003, 4004, 4010, 4011, 4012) and applies a 30-minute delay before retrying instead of entering an infinite reconnect loop. On successful reconnection, the normal backoff timer resets immediately.
+- **Auth Failure Diagnostics** — `Disconnected` event now logs a clear error when authentication is rejected, directing users to verify their bot token.
+- **Invite Event Crash Fix** — `TryEmitInviteCreateEvent` and `TryEmitInviteDeleteEvent` now use `TryGetProperty` for optional fields (`guild_id`, `inviter`, `code`, `created_at`), preventing `KeyNotFoundException` crashes when Discord omits these fields (e.g. DM invites, vanity URL invites).
+- ✅ **0 breaking changes** — All existing API and event types unchanged.
+
+### v1.10.11 - Kick & Ban via DiscordContext.Operations
+- **Moderation API Completeness** — `KickMemberAsync` and `BanMemberAsync` are now exposed on `DiscordContext.Operations`, completing moderation coverage alongside existing timeout, role, and voice operations. `KickMemberAsync` also added to the `IDiscordBot` interface.
+- ✅ **0 breaking changes** — New methods only, all existing API unchanged.
+
 ### v1.10.10 - DM Channel Deserialization Fix
 - **DM Channel Fix** — `DiscordChannel.Name` is no longer marked `required`, defaulting to `string.Empty`. DM/GroupDM channels omit `name` from API responses, which previously caused deserialization crashes in `SendDMAsync`, `GetChannelAsync`, and interaction resolved channel data.
 - ✅ **0 breaking changes** — `Name` still returns `string` (non-nullable). Existing code setting `Name` continues to work unchanged.

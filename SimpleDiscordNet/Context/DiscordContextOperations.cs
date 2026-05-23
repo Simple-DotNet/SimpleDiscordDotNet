@@ -109,6 +109,14 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
     public Task UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
         => _bot.UnmuteMemberAsync(guildId, userId, ct);
 
+    public Task KickMemberAsync(string guildId, string userId, CancellationToken ct = default)
+        => _bot.KickMemberAsync(guildId, userId, ct);
+    public Task KickMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
+        => _bot.KickMemberAsync(guildId.ToString(CultureInfo.InvariantCulture), userId.ToString(CultureInfo.InvariantCulture), ct);
+
+    public Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays = null, CancellationToken ct = default)
+        => _bot.BanMemberAsync(guildId, userId, deleteMessageDays, ct);
+
     public Task<DiscordMessage?> SendDMAsync(string userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
         => _bot.SendDMAsync(userId, content, embed, ct);
 

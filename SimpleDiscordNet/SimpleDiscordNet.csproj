@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.10.10</Version>
+        <Version>1.10.12</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.10.10: Fixed deserialization crash when fetching DM channels — DiscordChannel.Name is no longer `required`, defaulting to string.Empty for DM/GroupDM channels that omit the name field from API responses.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.10.12: Non-recoverable gateway close codes (4003, 4004, 4010, 4011, 4012) now apply a 30-minute delay before retry instead of entering an infinite reconnect loop. Auth rejection diagnostics added. Invite create/delete events fixed to handle optional JSON fields (guild_id, inviter, code).</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>

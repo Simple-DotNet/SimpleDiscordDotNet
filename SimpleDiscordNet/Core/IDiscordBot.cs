@@ -264,6 +264,11 @@ public interface IDiscordBot : IAsyncDisposable, IDisposable
     Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, string? nick = null, IEnumerable<string>? roles = null, bool? mute = null, bool? deaf = null, DateTimeOffset? communicationDisabledUntil = null, ulong? channelId = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Kicks a member from the guild. Requires KICK_MEMBERS permission.
+    /// </summary>
+    Task KickMemberAsync(string guildId, string userId, CancellationToken ct = default);
+
+    /// <summary>
     /// Bans a user from the guild. Requires BAN_MEMBERS permission.
     /// </summary>
     Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays = null, CancellationToken ct = default);

@@ -42,10 +42,17 @@ internal sealed partial class GatewayClient
                         result = await ws.ReceiveAsync(seg, ct).ConfigureAwait(false);
                         if (result.MessageType == WebSocketMessageType.Close)
                         {
+                            int closeCode = (int)(result.CloseStatus ?? WebSocketCloseStatus.Empty);
                             string reason = $"Close: {result.CloseStatus} - {result.CloseStatusDescription}";
-                            Error?.Invoke(this, new WebSocketException((int)(result.CloseStatus ?? WebSocketCloseStatus.Empty), reason));
-                            Disconnected?.Invoke(this, new WebSocketException((int)(result.CloseStatus ?? WebSocketCloseStatus.Empty), reason));
-                            // Attempt to reconnect, according to gateway policy
+                            Error?.Invoke(this, new WebSocketException(closeCode, reason));
+                            Disconnected?.Invoke(this, new WebSocketException(closeCode, reason));
+
+                            if (closeCode is 4003 or 4004 or 4010 or 4011 or 4012)
+                            {
+                                try { await Task.Delay(TimeSpan.FromMinutes(30), ct).ConfigureAwait(false); }
+                                catch (OperationCanceledException) { break; }
+                            }
+
                             if (!_autoReconnect)
                             {
                                 await DisconnectAsync().ConfigureAwait(false);

@@ -97,6 +97,17 @@ public interface IDiscordContextOperations
     Task UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
 
     /// <summary>
+    /// Kicks a member from the guild.
+    /// </summary>
+    Task KickMemberAsync(string guildId, string userId, CancellationToken ct = default);
+    Task KickMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Bans a user from the guild.
+    /// </summary>
+    Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Sends a direct message to a user by creating a DM channel and sending a message.
     /// </summary>
     Task<DiscordMessage?> SendDMAsync(string userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default);

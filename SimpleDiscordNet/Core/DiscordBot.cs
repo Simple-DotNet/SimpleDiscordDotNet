@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net.WebSockets;
 using System.Text.Json;
 using SimpleDiscordNet.Context;
 using SimpleDiscordNet.Core;
@@ -1988,7 +1989,15 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
 
     // Event handler methods for gateway events
     private void OnConnected(object? sender, EventArgs e) => DiscordEvents.RaiseConnected(this);
-    private void OnDisconnected(object? sender, Exception? ex) => DiscordEvents.RaiseDisconnected(this, ex);
+    private void OnDisconnected(object? sender, Exception? ex)
+    {
+        DiscordEvents.RaiseDisconnected(this, ex);
+        if (ex is WebSocketException wsEx &&
+            (wsEx.Message.Contains("4003") || wsEx.Message.Contains("4004")))
+        {
+            _logger.Log(LogLevel.Error, $"Authentication rejected ({wsEx.Message}). Verify your bot token in the Discord Developer Portal.");
+        }
+    }
     private void OnError(object? sender, Exception ex) => DiscordEvents.RaiseError(this, ex);
 
     private void OnInteractionCreate(object? sender, InteractionCreateEvent e)
