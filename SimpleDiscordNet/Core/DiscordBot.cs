@@ -670,13 +670,13 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="ct">Cancellation token</param>
     public Task<DiscordRole?> CreateRoleAsync(string guildId, string? name = null, ulong? permissions = null, int? color = null, bool? hoist = null, bool? mentionable = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new CreateGuildRoleRequest
         {
-            name,
+            name = name,
             permissions = permissions?.ToString(CultureInfo.InvariantCulture),
-            color,
-            hoist,
-            mentionable
+            color = color,
+            hoist = hoist,
+            mentionable = mentionable
         };
         return _rest.PostGuildRoleAsync<DiscordRole>(guildId, payload, ct);
     }
@@ -693,13 +693,13 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task<DiscordRole?> ModifyRoleAsync(string guildId, string roleId, string? name = null, ulong? permissions = null, int? color = null, bool? hoist = null, bool? mentionable = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new CreateGuildRoleRequest
         {
-            name,
+            name = name,
             permissions = permissions?.ToString(CultureInfo.InvariantCulture),
-            color,
-            hoist,
-            mentionable
+            color = color,
+            hoist = hoist,
+            mentionable = mentionable
         };
         return _rest.PatchGuildRoleAsync<DiscordRole>(guildId, roleId, payload, ct);
     }
@@ -735,9 +735,9 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="ct">Cancellation token</param>
     public Task<DiscordChannel?> CreateChannelAsync(string guildId, string name, Entities.ChannelType type, string? parentId = null, object[]? permissionOverwrites = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new CreateGuildChannelRequest
         {
-            name,
+            name = name,
             type = (int)type,
             parent_id = parentId,
             permission_overwrites = permissionOverwrites
@@ -775,15 +775,15 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task<DiscordChannel?> ModifyChannelAsync(string channelId, string? name = null, int? type = null, string? parentId = null, int? position = null, string? topic = null, bool? nsfw = null, int? bitrate = null, int? userLimit = null, int? rateLimitPerUser = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new ModifyChannelRequest
         {
-            name,
-            type,
+            name = name,
+            type = type,
             parent_id = parentId,
-            position,
-            topic,
-            nsfw,
-            bitrate,
+            position = position,
+            topic = topic,
+            nsfw = nsfw,
+            bitrate = bitrate,
             user_limit = userLimit,
             rate_limit_per_user = rateLimitPerUser
         };
@@ -849,9 +849,9 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task<DiscordMessage?> EditMessageAsync(string channelId, string messageId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new EditMessageRequest
         {
-            content,
+            content = content,
             embeds = embed is null ? null : new[] { embed.Build() }
         };
         return _rest.PatchMessageAsync<DiscordMessage>(channelId, messageId, payload, ct);
@@ -1489,16 +1489,16 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public Task<DiscordGuild?> ModifyGuildAsync(string guildId, string? name = null, int? verificationLevel = null, int? defaultMessageNotifications = null, int? explicitContentFilter = null, string? afkChannelId = null, int? afkTimeout = null, string? ownerId = null, string? description = null, string? preferredLocale = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new ModifyGuildRequest
         {
-            name,
+            name = name,
             verification_level = verificationLevel,
             default_message_notifications = defaultMessageNotifications,
             explicit_content_filter = explicitContentFilter,
             afk_channel_id = afkChannelId,
             afk_timeout = afkTimeout,
             owner_id = ownerId,
-            description,
+            description = description,
             preferred_locale = preferredLocale
         };
         return _rest.PatchGuildAsync<DiscordGuild>(guildId, payload, ct);

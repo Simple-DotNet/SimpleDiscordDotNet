@@ -130,6 +130,10 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
+### v1.10.13 - Anonymous Type Serialization Fix
+- **Anonymous Type Serialization Crash** — 6 REST methods (`CreateRoleAsync`, `ModifyRoleAsync`, `CreateChannelAsync`, `ModifyChannelAsync`, `EditMessageAsync`, `ModifyGuildAsync`) used anonymous types as request payloads, causing `NotSupportedException` when serialized via source-generated `DiscordJsonContext`. Replaced all anonymous types with named request classes (`CreateGuildRoleRequest`, `CreateGuildChannelRequest`, `ModifyChannelRequest`, `EditMessageRequest`, `ModifyGuildRequest`) and registered them with `[JsonSerializable]`.
+- ✅ **0 breaking changes** — All method signatures and public API unchanged.
+
 ### v1.10.12 - Gateway Reconnect Hardening & Invite Event Fixes
 - **Non-Recoverable Close Code Protection** — Gateway now detects non-recoverable Discord close codes (4003, 4004, 4010, 4011, 4012) and applies a 30-minute delay before retrying instead of entering an infinite reconnect loop. On successful reconnection, the normal backoff timer resets immediately.
 - **Auth Failure Diagnostics** — `Disconnected` event now logs a clear error when authentication is rejected, directing users to verify their bot token.

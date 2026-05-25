@@ -83,3 +83,52 @@ internal sealed class EmptyPayload
 {
     public static readonly EmptyPayload Instance = new();
 }
+
+internal sealed class CreateGuildRoleRequest
+{
+    public string? name { get; init; }
+    public string? permissions { get; init; }
+    public int? color { get; init; }
+    public bool? hoist { get; init; }
+    public bool? mentionable { get; init; }
+}
+
+internal sealed class CreateGuildChannelRequest
+{
+    public string name { get; init; } = string.Empty;
+    public int type { get; init; }
+    public string? parent_id { get; init; }
+    public object[]? permission_overwrites { get; init; }
+}
+
+internal sealed class ModifyChannelRequest
+{
+    public string? name { get; init; }
+    public int? type { get; init; }
+    public string? parent_id { get; init; }
+    public int? position { get; init; }
+    public string? topic { get; init; }
+    public bool? nsfw { get; init; }
+    public int? bitrate { get; init; }
+    public int? user_limit { get; init; }
+    public int? rate_limit_per_user { get; init; }
+}
+
+internal sealed class EditMessageRequest
+{
+    public string content { get; init; } = string.Empty;
+    public Embed[]? embeds { get; init; }
+}
+
+internal sealed class ModifyGuildRequest
+{
+    public string? name { get; init; }
+    public int? verification_level { get; init; }
+    public int? default_message_notifications { get; init; }
+    public int? explicit_content_filter { get; init; }
+    public string? afk_channel_id { get; init; }
+    public int? afk_timeout { get; init; }
+    public string? owner_id { get; init; }
+    public string? description { get; init; }
+    public string? preferred_locale { get; init; }
+}

@@ -145,6 +145,11 @@ namespace SimpleDiscordNet.Serialization;
 [JsonSerializable(typeof(ModifyCurrentUserRequest))]
 [JsonSerializable(typeof(ModifyNicknameRequest))]
 [JsonSerializable(typeof(EmptyPayload))]
+[JsonSerializable(typeof(CreateGuildRoleRequest))]
+[JsonSerializable(typeof(CreateGuildChannelRequest))]
+[JsonSerializable(typeof(ModifyChannelRequest))]
+[JsonSerializable(typeof(EditMessageRequest))]
+[JsonSerializable(typeof(ModifyGuildRequest))]
 [JsonSerializable(typeof(int?))]
 
 internal partial class DiscordJsonContext : JsonSerializerContext;
