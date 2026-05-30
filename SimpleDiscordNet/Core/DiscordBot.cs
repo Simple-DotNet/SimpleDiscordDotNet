@@ -267,7 +267,9 @@ public sealed class DiscordBot : IDiscordBot
                     OnGuildMemberAdd, OnGuildMemberUpdate, OnGuildMemberRemove, OnGuildMembersChunk,
                     OnGuildBanAdd, OnGuildBanRemove, OnUserUpdate, OnGuildAuditLogEntryCreate,
                     OnMessageUpdate, OnMessageDelete, OnMessageDeleteBulk,
-                    OnMessageReactionAdd, OnMessageReactionRemove, OnMessageReactionRemoveAll, OnMessageReactionRemoveEmoji);
+                    OnMessageReactionAdd, OnMessageReactionRemove, OnMessageReactionRemoveAll, OnMessageReactionRemoveEmoji,
+                    OnSessionResumed,
+                    (_, _) => _cache.ResetAll());
                 break;
 
             case ShardMode.Distributed when _coordinator != null:
@@ -301,7 +303,9 @@ public sealed class DiscordBot : IDiscordBot
                             OnGuildMemberAdd, OnGuildMemberUpdate, OnGuildMemberRemove, OnGuildMembersChunk,
                             OnGuildBanAdd, OnGuildBanRemove, OnUserUpdate, OnGuildAuditLogEntryCreate,
                             OnMessageUpdate, OnMessageDelete, OnMessageDeleteBulk,
-                            OnMessageReactionAdd, OnMessageReactionRemove, OnMessageReactionRemoveAll, OnMessageReactionRemoveEmoji);
+                            OnMessageReactionAdd, OnMessageReactionRemove, OnMessageReactionRemoveAll, OnMessageReactionRemoveEmoji,
+                            OnSessionResumed,
+                            (_, _) => _cache.ResetAll());
                     }
                 }
                 break;
@@ -1989,6 +1993,7 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
 
     // Event handler methods for gateway events
     private void OnConnected(object? sender, EventArgs e) => DiscordEvents.RaiseConnected(this);
+    private void OnSessionResumed(object? sender, EventArgs e) => DiscordEvents.RaiseSessionResumed(this);
     private void OnDisconnected(object? sender, Exception? ex)
     {
         DiscordEvents.RaiseDisconnected(this, ex);
@@ -2447,8 +2452,10 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
 
         // Basic lifecycle and message routing
         _gateway.Connected += OnConnected;
+        _gateway.SessionResumed += OnSessionResumed;
         _gateway.Disconnected += OnDisconnected;
         _gateway.Error += OnError;
+        _gateway.SessionReset += (_, _) => _cache.ResetAll();
 
         // Message events
         _gateway.MessageCreate += (_, rawMsg) =>

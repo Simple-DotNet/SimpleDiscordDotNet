@@ -31,6 +31,8 @@ public static class DiscordEvents
     // ---- Connection and logging ----
     /// <summary>Fired when the bot successfully connects to Discord's gateway.</summary>
     public static event EventHandler? Connected;
+    /// <summary>Fired when the bot successfully resumes a gateway session after a disconnect.</summary>
+    public static event EventHandler? SessionResumed;
     /// <summary>Fired when the bot disconnects from Discord's gateway.</summary>
     public static event EventHandler<Exception?>? Disconnected;
     /// <summary>Fired when an error occurs in the bot.</summary>
@@ -41,6 +43,8 @@ public static class DiscordEvents
 
     internal static void RaiseConnected(object? sender)
         => Connected?.Invoke(sender, EventArgs.Empty);
+    internal static void RaiseSessionResumed(object? sender)
+        => SessionResumed?.Invoke(sender, EventArgs.Empty);
     internal static void RaiseDisconnected(object? sender, Exception? ex)
         => Disconnected?.Invoke(sender, ex);
     internal static void RaiseError(object? sender, Exception ex)
@@ -311,6 +315,7 @@ public static class DiscordEvents
     public static void UnsubscribeAll()
     {
         Connected = null;
+        SessionResumed = null;
         Disconnected = null;
         Error = null;
         Log = null;

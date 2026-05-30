@@ -32,6 +32,7 @@ internal sealed class Shard : IDisposable
     private int _commandCount;
 
     private EventHandler? _onConnected;
+    private EventHandler? _onSessionResumed;
     private EventHandler<Exception?>? _onDisconnected;
     private CancellationTokenSource? _metricsCts;
 
@@ -166,6 +167,13 @@ internal sealed class Shard : IDisposable
         };
         _gateway.Connected += _onConnected;
 
+        _onSessionResumed = (_, _) =>
+        {
+            _status = ShardStatus.Connected;
+            _logger.Log(LogLevel.Information, $"Shard {_shardId}/{_totalShards}: Session resumed");
+        };
+        _gateway.SessionResumed += _onSessionResumed;
+
         _onDisconnected = (_, ex) =>
         {
             _status = ex == null ? ShardStatus.Disconnected : ShardStatus.Reconnecting;
@@ -210,6 +218,8 @@ internal sealed class Shard : IDisposable
         _metricsCts?.Cancel();
         if (_onConnected != null)
             _gateway.Connected -= _onConnected;
+        if (_onSessionResumed != null)
+            _gateway.SessionResumed -= _onSessionResumed;
         if (_onDisconnected != null)
             _gateway.Disconnected -= _onDisconnected;
         _metricsCts?.Dispose();

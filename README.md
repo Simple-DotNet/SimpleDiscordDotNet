@@ -130,6 +130,18 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
+### v1.10.15 - Session Resumed Event
+- **New `SessionResumed` Event** — Added to `GatewayClient`, `DiscordEvents`, and `Shard` infrastructure. Fires when the gateway successfully resumes an existing session after a WebSocket disconnect (`t="RESUMED"`), distinct from `Connected` which only fires on initial or new `READY`.
+- **Shard Status Fix** — `Shard._status` now correctly transitions from `Reconnecting` back to `Connected` on successful resume, rather than staying stuck in `Reconnecting` permanently.
+- **`WireShardEvents` Updated** — Now accepts an `onSessionResumed` parameter so sharded consumers can subscribe to resume events through the wiring helper.
+- ✅ **0 breaking changes** — All existing API and event types unchanged. `SessionResumed` is a new event; existing `Connected` behavior is preserved.
+
+### v1.10.14 - Gateway Reconnect & Session Resume Fix
+- **30-Minute Disconnect Fixed** — Close code 4003 (Not authenticated) no longer waits 30 minutes before retrying. Reduced to 30-second delay.
+- **Session Resume Attempt** — On 4003, the gateway first attempts to resume the existing session. If resume fails, it clears all cached entities (guilds, channels, members, users, roles) and performs a fresh identify to guarantee a clean state.
+- **Fatal Codes Stop Retrying** — Close codes 4004, 4010, 4011, 4012 are now treated as fatal configuration errors and stop the reconnect loop immediately.
+- ✅ **0 breaking changes** — All existing API and event types unchanged.
+
 ### v1.10.13 - Anonymous Type Serialization Fix
 - **Anonymous Type Serialization Crash** — 6 REST methods (`CreateRoleAsync`, `ModifyRoleAsync`, `CreateChannelAsync`, `ModifyChannelAsync`, `EditMessageAsync`, `ModifyGuildAsync`) used anonymous types as request payloads, causing `NotSupportedException` when serialized via source-generated `DiscordJsonContext`. Replaced all anonymous types with named request classes (`CreateGuildRoleRequest`, `CreateGuildChannelRequest`, `ModifyChannelRequest`, `EditMessageRequest`, `ModifyGuildRequest`) and registered them with `[JsonSerializable]`.
 - ✅ **0 breaking changes** — All method signatures and public API unchanged.

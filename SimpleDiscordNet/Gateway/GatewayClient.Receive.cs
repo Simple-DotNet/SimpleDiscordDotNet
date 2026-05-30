@@ -47,10 +47,25 @@ internal sealed partial class GatewayClient
                             Error?.Invoke(this, new WebSocketException(closeCode, reason));
                             Disconnected?.Invoke(this, new WebSocketException(closeCode, reason));
 
-                            if (closeCode is 4003 or 4004 or 4010 or 4011 or 4012)
+                            if (closeCode is 4004 or 4010 or 4011 or 4012)
                             {
-                                try { await Task.Delay(TimeSpan.FromMinutes(30), ct).ConfigureAwait(false); }
-                                catch (OperationCanceledException) { break; }
+                                _autoReconnect = false;
+                                try { await DisconnectAsync().ConfigureAwait(false); } catch { }
+                                return;
+                            }
+
+                            if (closeCode == 4003)
+                            {
+                                if (_sessionExpired)
+                                {
+                                    _sessionId = null;
+                                    Interlocked.Exchange(ref _seq, 0);
+                                    SessionReset?.Invoke(this, EventArgs.Empty);
+                                }
+                                else
+                                {
+                                    _sessionExpired = true;
+                                }
                             }
 
                             if (!_autoReconnect)
@@ -58,6 +73,9 @@ internal sealed partial class GatewayClient
                                 await DisconnectAsync().ConfigureAwait(false);
                                 return;
                             }
+                            try { await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false); }
+                            catch (OperationCanceledException) { break; }
+
                             bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
                             if (!reconnected)
                             {
@@ -70,7 +88,6 @@ internal sealed partial class GatewayClient
                                 finally { _reconnectGate.Release(); }
                                 goto ContinueLoop;
                             }
-                            // continue to next iteration with new socket
                             goto ContinueLoop;
                         }
                         memoryStream.Write(buffer.AsSpan(0, result.Count));

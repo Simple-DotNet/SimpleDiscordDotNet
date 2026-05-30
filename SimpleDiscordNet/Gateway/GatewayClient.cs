@@ -24,6 +24,7 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
     private int _missedHeartbeatAcks;
     private readonly Random _rand = new();
     private int _reconnectAttempt;
+    private volatile bool _sessionExpired;
     private volatile bool _autoReconnect = true;
     private int _isReady;
     private readonly SemaphoreSlim _reconnectGate = new(1, 1);
@@ -43,7 +44,9 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
     }
 
     public event EventHandler? Connected;
+    public event EventHandler? SessionResumed;
     public event EventHandler<Exception?>? Disconnected;
+    public event EventHandler? SessionReset;
     public event EventHandler<Exception>? Error;
     public event EventHandler<MessageCreateEventRaw>? MessageCreate;
     public event EventHandler<InteractionCreateEvent>? InteractionCreate;
@@ -171,11 +174,20 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
                 UserUpdate?.Invoke(this, botUser);
             }
 
+            _sessionExpired = false;
+
             if (Interlocked.CompareExchange(ref _isReady, 1, 0) == 0)
             {
                 Connected?.Invoke(this, EventArgs.Empty);
             }
 
+            return;
+        }
+
+        if (string.Equals(eventName, "RESUMED", StringComparison.Ordinal))
+        {
+            _sessionExpired = false;
+            SessionResumed?.Invoke(this, EventArgs.Empty);
             return;
         }
 

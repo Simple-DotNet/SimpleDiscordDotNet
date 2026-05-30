@@ -212,12 +212,16 @@ internal sealed class ShardManager : IDisposable
         EventHandler<Events.ReactionEvent>? onMessageReactionAdd,
         EventHandler<Events.ReactionEvent>? onMessageReactionRemove,
         EventHandler<Events.MessageEvent>? onMessageReactionRemoveAll,
-        EventHandler<Events.ReactionEvent>? onMessageReactionRemoveEmoji)
+        EventHandler<Events.ReactionEvent>? onMessageReactionRemoveEmoji,
+        EventHandler? onSessionResumed = null,
+        EventHandler? onSessionReset = null)
     {
         var gateway = shard.Gateway;
         if (onConnected != null) gateway.Connected += onConnected;
+        if (onSessionResumed != null) gateway.SessionResumed += onSessionResumed;
         if (onDisconnected != null) gateway.Disconnected += onDisconnected;
         if (onError != null) gateway.Error += onError;
+        if (onSessionReset != null) gateway.SessionReset += onSessionReset;
         if (onMessageCreate != null) gateway.MessageCreate += onMessageCreate;
         if (onInteractionCreate != null) gateway.InteractionCreate += onInteractionCreate;
         if (onGuildCreate != null) gateway.GuildCreate += onGuildCreate;
