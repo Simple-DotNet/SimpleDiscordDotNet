@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.10.15</Version>
+        <Version>1.10.16</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.10.15: Added SessionResumed event to GatewayClient, DiscordEvents, and Shard infrastructure. Fires when the gateway successfully resumes an existing session after a disconnect (t="RESUMED"), distinct from Connected which only fires on initial/new READY. Shard _status now correctly returns to Connected on resume instead of staying Reconnected forever. WireShardEvents accepts onSessionResumed parameter.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.10.16: Fixed Disconnected event not being raised during silent TCP connection loss. The event now fires reliably before every reconnect attempt — missed heartbeat ACKs, receive loop exceptions, socket state loss (half-close), and op=7 RECONNECT requests — ensuring upstream consumers always receive connection state transitions.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>

@@ -19,8 +19,9 @@ internal sealed partial class GatewayClient
                     ClientWebSocket ws = _ws;
                     if (ws.State != WebSocketState.Open)
                     {
-                        if (!_autoReconnect) return;
-                        bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
+                    if (!_autoReconnect) return;
+                    Disconnected?.Invoke(this, null);
+                    bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
                         if (!reconnected)
                         {
                             await _reconnectGate.WaitAsync(ct).ConfigureAwait(false);
@@ -120,11 +121,12 @@ internal sealed partial class GatewayClient
                         case 0: // Dispatch
                             HandleDispatch(payload.t, payload.d);
                             break;
-                        case 7: // RECONNECT
-                            if (_autoReconnect)
-                            {
-                                bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
-                                if (!reconnected) goto ContinueLoop;
+                    case 7: // RECONNECT
+                        if (_autoReconnect)
+                        {
+                            Disconnected?.Invoke(this, null);
+                            bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
+                            if (!reconnected) goto ContinueLoop;
                             }
                             break;
                         case 9: // INVALID_SESSION
@@ -156,6 +158,7 @@ internal sealed partial class GatewayClient
                 {
                     try
                     {
+                        Disconnected?.Invoke(this, ex);
                         bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
                         if (!reconnected)
                         {
