@@ -19,8 +19,9 @@ internal sealed partial class GatewayClient
                     ClientWebSocket ws = _ws;
                     if (ws.State != WebSocketState.Open)
                     {
-                        if (!_autoReconnect) return;
-                        bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
+                    if (!_autoReconnect) return;
+                    Disconnected?.Invoke(this, null);
+                    bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
                         if (!reconnected)
                         {
                             await _reconnectGate.WaitAsync(ct).ConfigureAwait(false);
@@ -42,15 +43,40 @@ internal sealed partial class GatewayClient
                         result = await ws.ReceiveAsync(seg, ct).ConfigureAwait(false);
                         if (result.MessageType == WebSocketMessageType.Close)
                         {
+                            int closeCode = (int)(result.CloseStatus ?? WebSocketCloseStatus.Empty);
                             string reason = $"Close: {result.CloseStatus} - {result.CloseStatusDescription}";
-                            Error?.Invoke(this, new WebSocketException((int)(result.CloseStatus ?? WebSocketCloseStatus.Empty), reason));
-                            Disconnected?.Invoke(this, new WebSocketException((int)(result.CloseStatus ?? WebSocketCloseStatus.Empty), reason));
-                            // Attempt to reconnect, according to gateway policy
+                            Error?.Invoke(this, new WebSocketException(closeCode, reason));
+                            Disconnected?.Invoke(this, new WebSocketException(closeCode, reason));
+
+                            if (closeCode is 4004 or 4010 or 4011 or 4012)
+                            {
+                                _autoReconnect = false;
+                                try { await DisconnectAsync().ConfigureAwait(false); } catch { }
+                                return;
+                            }
+
+                            if (closeCode == 4003)
+                            {
+                                if (_sessionExpired)
+                                {
+                                    _sessionId = null;
+                                    Interlocked.Exchange(ref _seq, 0);
+                                    SessionReset?.Invoke(this, EventArgs.Empty);
+                                }
+                                else
+                                {
+                                    _sessionExpired = true;
+                                }
+                            }
+
                             if (!_autoReconnect)
                             {
                                 await DisconnectAsync().ConfigureAwait(false);
                                 return;
                             }
+                            try { await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false); }
+                            catch (OperationCanceledException) { break; }
+
                             bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
                             if (!reconnected)
                             {
@@ -63,7 +89,6 @@ internal sealed partial class GatewayClient
                                 finally { _reconnectGate.Release(); }
                                 goto ContinueLoop;
                             }
-                            // continue to next iteration with new socket
                             goto ContinueLoop;
                         }
                         memoryStream.Write(buffer.AsSpan(0, result.Count));
@@ -96,11 +121,12 @@ internal sealed partial class GatewayClient
                         case 0: // Dispatch
                             HandleDispatch(payload.t, payload.d);
                             break;
-                        case 7: // RECONNECT
-                            if (_autoReconnect)
-                            {
-                                bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
-                                if (!reconnected) goto ContinueLoop;
+                    case 7: // RECONNECT
+                        if (_autoReconnect)
+                        {
+                            Disconnected?.Invoke(this, null);
+                            bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
+                            if (!reconnected) goto ContinueLoop;
                             }
                             break;
                         case 9: // INVALID_SESSION
@@ -132,6 +158,7 @@ internal sealed partial class GatewayClient
                 {
                     try
                     {
+                        Disconnected?.Invoke(this, ex);
                         bool reconnected = await SafeReconnectAsync(ct).ConfigureAwait(false);
                         if (!reconnected)
                         {

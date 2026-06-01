@@ -422,6 +422,17 @@ internal sealed class EntityCache
 
     // --- Incremental mutation helpers for gateway events ---
 
+    public void ResetAll()
+    {
+        _guilds.Clear();
+        _channelsByGuild.Clear();
+        _membersByGuild.Clear();
+        _users.Clear();
+        _channelsById.Clear();
+        _rolesById.Clear();
+        while (_userAccessOrder.TryDequeue(out _)) { }
+    }
+
     public void UpsertGuild(DiscordGuild guild)
     {
         _guilds[guild.Id] = guild;

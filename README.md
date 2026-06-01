@@ -130,6 +130,40 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
+### v1.10.16 - Disconnected Event Reliability Fix
+- **Disconnected Event Fix** — `Disconnected` now fires reliably before every silent reconnect attempt, not just on WebSocket close frames. Added to four code paths: missed heartbeat ACKs, receive loop exceptions, socket state loss (half-close without close frame), and op=7 RECONNECT requests. Upstream consumers tracking `IsConnected` via events will no longer show stale "Connected" state after silent connection loss.
+- ✅ **0 breaking changes** — All existing API and event types unchanged.
+
+### v1.10.15 - Session Resumed Event
+- **New `SessionResumed` Event** — Added to `GatewayClient`, `DiscordEvents`, and `Shard` infrastructure. Fires when the gateway successfully resumes an existing session after a WebSocket disconnect (`t="RESUMED"`), distinct from `Connected` which only fires on initial or new `READY`.
+- **Shard Status Fix** — `Shard._status` now correctly transitions from `Reconnecting` back to `Connected` on successful resume, rather than staying stuck in `Reconnecting` permanently.
+- **`WireShardEvents` Updated** — Now accepts an `onSessionResumed` parameter so sharded consumers can subscribe to resume events through the wiring helper.
+- ✅ **0 breaking changes** — All existing API and event types unchanged. `SessionResumed` is a new event; existing `Connected` behavior is preserved.
+
+### v1.10.14 - Gateway Reconnect & Session Resume Fix
+- **30-Minute Disconnect Fixed** — Close code 4003 (Not authenticated) no longer waits 30 minutes before retrying. Reduced to 30-second delay.
+- **Session Resume Attempt** — On 4003, the gateway first attempts to resume the existing session. If resume fails, it clears all cached entities (guilds, channels, members, users, roles) and performs a fresh identify to guarantee a clean state.
+- **Fatal Codes Stop Retrying** — Close codes 4004, 4010, 4011, 4012 are now treated as fatal configuration errors and stop the reconnect loop immediately.
+- ✅ **0 breaking changes** — All existing API and event types unchanged.
+
+### v1.10.13 - Anonymous Type Serialization Fix
+- **Anonymous Type Serialization Crash** — 6 REST methods (`CreateRoleAsync`, `ModifyRoleAsync`, `CreateChannelAsync`, `ModifyChannelAsync`, `EditMessageAsync`, `ModifyGuildAsync`) used anonymous types as request payloads, causing `NotSupportedException` when serialized via source-generated `DiscordJsonContext`. Replaced all anonymous types with named request classes (`CreateGuildRoleRequest`, `CreateGuildChannelRequest`, `ModifyChannelRequest`, `EditMessageRequest`, `ModifyGuildRequest`) and registered them with `[JsonSerializable]`.
+- ✅ **0 breaking changes** — All method signatures and public API unchanged.
+
+### v1.10.12 - Gateway Reconnect Hardening & Invite Event Fixes
+- **Non-Recoverable Close Code Protection** — Gateway now detects non-recoverable Discord close codes (4003, 4004, 4010, 4011, 4012) and applies a 30-minute delay before retrying instead of entering an infinite reconnect loop. On successful reconnection, the normal backoff timer resets immediately.
+- **Auth Failure Diagnostics** — `Disconnected` event now logs a clear error when authentication is rejected, directing users to verify their bot token.
+- **Invite Event Crash Fix** — `TryEmitInviteCreateEvent` and `TryEmitInviteDeleteEvent` now use `TryGetProperty` for optional fields (`guild_id`, `inviter`, `code`, `created_at`), preventing `KeyNotFoundException` crashes when Discord omits these fields (e.g. DM invites, vanity URL invites).
+- ✅ **0 breaking changes** — All existing API and event types unchanged.
+
+### v1.10.11 - Kick & Ban via DiscordContext.Operations
+- **Moderation API Completeness** — `KickMemberAsync` and `BanMemberAsync` are now exposed on `DiscordContext.Operations`, completing moderation coverage alongside existing timeout, role, and voice operations. `KickMemberAsync` also added to the `IDiscordBot` interface.
+- ✅ **0 breaking changes** — New methods only, all existing API unchanged.
+
+### v1.10.10 - DM Channel Deserialization Fix
+- **DM Channel Fix** — `DiscordChannel.Name` is no longer marked `required`, defaulting to `string.Empty`. DM/GroupDM channels omit `name` from API responses, which previously caused deserialization crashes in `SendDMAsync`, `GetChannelAsync`, and interaction resolved channel data.
+- ✅ **0 breaking changes** — `Name` still returns `string` (non-nullable). Existing code setting `Name` continues to work unchanged.
+
 ### v1.10.9 - File Attachments on Interaction Responses & Followups
 - **File Attachments on Responses** — `RespondAsync`, `FollowupAsync`, `EditFollowupAsync`, and `UpdateMessageAsync` now support file attachments via `MessageBuilder.AddFile()` or direct `fileName`/`fileData` parameters. The SDK automatically defers then sends files as followups when used on initial interaction responses (Discord does not support files on type 4/7 callbacks).
 - **File Attachments on Followups & Edits** — `FollowupAsync(MessageBuilder)`, `EditFollowupAsync(string, MessageBuilder)`, and `EditOriginalResponseAsync(MessageBuilder)` new overloads support multipart file uploads via webhook endpoints, including PATCH multipart for editing messages with attachments.

@@ -9,6 +9,10 @@
         <IsPackable>false</IsPackable>
 
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+
+        <Configurations>Release;Debug</Configurations>
+
+        <Platforms>x64</Platforms>
     </PropertyGroup>
 
     <ItemGroup>

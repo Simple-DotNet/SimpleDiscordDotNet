@@ -45,6 +45,7 @@ internal sealed partial class GatewayClient
             int missed = Interlocked.Increment(ref _missedHeartbeatAcks);
             if (missed >= 2 && _autoReconnect)
             {
+                Disconnected?.Invoke(this, null);
                 await SafeReconnectAsync(ct).ConfigureAwait(false);
                 return;
             }

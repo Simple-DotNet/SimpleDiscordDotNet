@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net.WebSockets;
 using System.Text.Json;
 using SimpleDiscordNet.Context;
 using SimpleDiscordNet.Core;
@@ -266,7 +267,9 @@ public sealed class DiscordBot : IDiscordBot
                     OnGuildMemberAdd, OnGuildMemberUpdate, OnGuildMemberRemove, OnGuildMembersChunk,
                     OnGuildBanAdd, OnGuildBanRemove, OnUserUpdate, OnGuildAuditLogEntryCreate,
                     OnMessageUpdate, OnMessageDelete, OnMessageDeleteBulk,
-                    OnMessageReactionAdd, OnMessageReactionRemove, OnMessageReactionRemoveAll, OnMessageReactionRemoveEmoji);
+                    OnMessageReactionAdd, OnMessageReactionRemove, OnMessageReactionRemoveAll, OnMessageReactionRemoveEmoji,
+                    OnSessionResumed,
+                    (_, _) => _cache.ResetAll());
                 break;
 
             case ShardMode.Distributed when _coordinator != null:
@@ -300,7 +303,9 @@ public sealed class DiscordBot : IDiscordBot
                             OnGuildMemberAdd, OnGuildMemberUpdate, OnGuildMemberRemove, OnGuildMembersChunk,
                             OnGuildBanAdd, OnGuildBanRemove, OnUserUpdate, OnGuildAuditLogEntryCreate,
                             OnMessageUpdate, OnMessageDelete, OnMessageDeleteBulk,
-                            OnMessageReactionAdd, OnMessageReactionRemove, OnMessageReactionRemoveAll, OnMessageReactionRemoveEmoji);
+                            OnMessageReactionAdd, OnMessageReactionRemove, OnMessageReactionRemoveAll, OnMessageReactionRemoveEmoji,
+                            OnSessionResumed,
+                            (_, _) => _cache.ResetAll());
                     }
                 }
                 break;
@@ -669,13 +674,13 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="ct">Cancellation token</param>
     public Task<DiscordRole?> CreateRoleAsync(string guildId, string? name = null, ulong? permissions = null, int? color = null, bool? hoist = null, bool? mentionable = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new CreateGuildRoleRequest
         {
-            name,
+            name = name,
             permissions = permissions?.ToString(CultureInfo.InvariantCulture),
-            color,
-            hoist,
-            mentionable
+            color = color,
+            hoist = hoist,
+            mentionable = mentionable
         };
         return _rest.PostGuildRoleAsync<DiscordRole>(guildId, payload, ct);
     }
@@ -692,13 +697,13 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task<DiscordRole?> ModifyRoleAsync(string guildId, string roleId, string? name = null, ulong? permissions = null, int? color = null, bool? hoist = null, bool? mentionable = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new CreateGuildRoleRequest
         {
-            name,
+            name = name,
             permissions = permissions?.ToString(CultureInfo.InvariantCulture),
-            color,
-            hoist,
-            mentionable
+            color = color,
+            hoist = hoist,
+            mentionable = mentionable
         };
         return _rest.PatchGuildRoleAsync<DiscordRole>(guildId, roleId, payload, ct);
     }
@@ -734,9 +739,9 @@ public sealed class DiscordBot : IDiscordBot
     /// <param name="ct">Cancellation token</param>
     public Task<DiscordChannel?> CreateChannelAsync(string guildId, string name, Entities.ChannelType type, string? parentId = null, object[]? permissionOverwrites = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new CreateGuildChannelRequest
         {
-            name,
+            name = name,
             type = (int)type,
             parent_id = parentId,
             permission_overwrites = permissionOverwrites
@@ -774,15 +779,15 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task<DiscordChannel?> ModifyChannelAsync(string channelId, string? name = null, int? type = null, string? parentId = null, int? position = null, string? topic = null, bool? nsfw = null, int? bitrate = null, int? userLimit = null, int? rateLimitPerUser = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new ModifyChannelRequest
         {
-            name,
-            type,
+            name = name,
+            type = type,
             parent_id = parentId,
-            position,
-            topic,
-            nsfw,
-            bitrate,
+            position = position,
+            topic = topic,
+            nsfw = nsfw,
+            bitrate = bitrate,
             user_limit = userLimit,
             rate_limit_per_user = rateLimitPerUser
         };
@@ -848,9 +853,9 @@ public sealed class DiscordBot : IDiscordBot
     /// </summary>
     public Task<DiscordMessage?> EditMessageAsync(string channelId, string messageId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new EditMessageRequest
         {
-            content,
+            content = content,
             embeds = embed is null ? null : new[] { embed.Build() }
         };
         return _rest.PatchMessageAsync<DiscordMessage>(channelId, messageId, payload, ct);
@@ -1488,16 +1493,16 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
     /// </summary>
     public Task<DiscordGuild?> ModifyGuildAsync(string guildId, string? name = null, int? verificationLevel = null, int? defaultMessageNotifications = null, int? explicitContentFilter = null, string? afkChannelId = null, int? afkTimeout = null, string? ownerId = null, string? description = null, string? preferredLocale = null, CancellationToken ct = default)
     {
-        var payload = new
+        var payload = new ModifyGuildRequest
         {
-            name,
+            name = name,
             verification_level = verificationLevel,
             default_message_notifications = defaultMessageNotifications,
             explicit_content_filter = explicitContentFilter,
             afk_channel_id = afkChannelId,
             afk_timeout = afkTimeout,
             owner_id = ownerId,
-            description,
+            description = description,
             preferred_locale = preferredLocale
         };
         return _rest.PatchGuildAsync<DiscordGuild>(guildId, payload, ct);
@@ -1988,7 +1993,16 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
 
     // Event handler methods for gateway events
     private void OnConnected(object? sender, EventArgs e) => DiscordEvents.RaiseConnected(this);
-    private void OnDisconnected(object? sender, Exception? ex) => DiscordEvents.RaiseDisconnected(this, ex);
+    private void OnSessionResumed(object? sender, EventArgs e) => DiscordEvents.RaiseSessionResumed(this);
+    private void OnDisconnected(object? sender, Exception? ex)
+    {
+        DiscordEvents.RaiseDisconnected(this, ex);
+        if (ex is WebSocketException wsEx &&
+            (wsEx.Message.Contains("4003") || wsEx.Message.Contains("4004")))
+        {
+            _logger.Log(LogLevel.Error, $"Authentication rejected ({wsEx.Message}). Verify your bot token in the Discord Developer Portal.");
+        }
+    }
     private void OnError(object? sender, Exception ex) => DiscordEvents.RaiseError(this, ex);
 
     private void OnInteractionCreate(object? sender, InteractionCreateEvent e)
@@ -2438,8 +2452,10 @@ public Task<DiscordMember?> ModifyGuildMemberAsync(ulong guildId, ulong userId, 
 
         // Basic lifecycle and message routing
         _gateway.Connected += OnConnected;
+        _gateway.SessionResumed += OnSessionResumed;
         _gateway.Disconnected += OnDisconnected;
         _gateway.Error += OnError;
+        _gateway.SessionReset += (_, _) => _cache.ResetAll();
 
         // Message events
         _gateway.MessageCreate += (_, rawMsg) =>

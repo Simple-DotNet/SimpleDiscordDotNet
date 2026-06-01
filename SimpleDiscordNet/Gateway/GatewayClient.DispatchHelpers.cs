@@ -714,13 +714,15 @@ internal sealed partial class GatewayClient
         try
         {
             ulong channelId = data.GetProperty("channel_id").GetDiscordId();
-            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
-            string code = data.GetProperty("code").GetString() ?? string.Empty;
-            DiscordUser inviter = ParseUser(data.GetProperty("inviter"));
+            ulong guildId = data.TryGetProperty("guild_id", out JsonElement gidEl) ? gidEl.GetDiscordId() : 0UL;
+            string code = data.TryGetProperty("code", out JsonElement codeEl) ? (codeEl.GetString() ?? string.Empty) : string.Empty;
+            DiscordUser inviter = data.TryGetProperty("inviter", out JsonElement inviterEl) ? ParseUser(inviterEl) : new DiscordUser { Id = 0UL, Username = string.Empty };
             int? maxUses = data.TryGetProperty("max_uses", out JsonElement mu) && mu.ValueKind != JsonValueKind.Null ? mu.GetInt32() : null;
             int? maxAge = data.TryGetProperty("max_age", out JsonElement ma) && ma.ValueKind != JsonValueKind.Null ? ma.GetInt32() : null;
             bool temporary = data.TryGetProperty("temporary", out JsonElement tmp) && tmp.ValueKind == JsonValueKind.True;
-            DateTimeOffset createdAt = DateTimeOffset.Parse(data.GetProperty("created_at").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            DateTimeOffset createdAt = data.TryGetProperty("created_at", out JsonElement createdAtEl)
+                ? DateTimeOffset.Parse(createdAtEl.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+                : DateTimeOffset.MinValue;
 
             InviteCreateEvent e = new()
             {
@@ -743,8 +745,8 @@ internal sealed partial class GatewayClient
         try
         {
             ulong channelId = data.GetProperty("channel_id").GetDiscordId();
-            ulong guildId = data.GetProperty("guild_id").GetDiscordId();
-            string code = data.GetProperty("code").GetString() ?? string.Empty;
+            ulong guildId = data.TryGetProperty("guild_id", out JsonElement gidEl) ? gidEl.GetDiscordId() : 0UL;
+            string code = data.TryGetProperty("code", out JsonElement codeEl) ? (codeEl.GetString() ?? string.Empty) : string.Empty;
             InviteDeleteEvent e = new() { ChannelId = channelId, GuildId = guildId, Code = code };
             evt?.Invoke(this, e);
         }
