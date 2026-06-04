@@ -140,11 +140,12 @@ internal sealed partial class GatewayClient
                             {
                                 await ResumeAsync(ct).ConfigureAwait(false);
                             }
-                            else
-                            {
-                                _sessionId = null; Interlocked.Exchange(ref _seq, 0);
-                                await IdentifyAsync(ct).ConfigureAwait(false);
-                            }
+                        else
+                        {
+                            _sessionId = null; Interlocked.Exchange(ref _seq, 0);
+                            Interlocked.Exchange(ref _isReady, 0);
+                            await IdentifyAsync(ct).ConfigureAwait(false);
+                        }
                             break;
                     }
                 ContinueLoop: ;

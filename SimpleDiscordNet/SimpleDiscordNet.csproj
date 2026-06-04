@@ -7,7 +7,7 @@
         <Nullable>enable</Nullable>
 
         <AssemblyName>SimpleDiscordDotNet</AssemblyName>
-        <Version>1.10.16</Version>
+        <Version>1.10.17</Version>
 
         <IsPackable>true</IsPackable>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.10.16: Fixed Disconnected event not being raised during silent TCP connection loss. The event now fires reliably before every reconnect attempt — missed heartbeat ACKs, receive loop exceptions, socket state loss (half-close), and op=7 RECONNECT requests — ensuring upstream consumers always receive connection state transitions.</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.10.17: Fixed Connected event not firing after fresh gateway reconnections (session expiry). Consumers tracking IsConnected via DiscordEvents would permanently show "Disconnected" because Connected only fired once on the initial READY and never on subsequent reconnections. Added _isReady reset in ResumeAsync fallback-to-identify and op=9 INVALID_SESSION paths to guarantee Connected fires after every full reconnect.</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>

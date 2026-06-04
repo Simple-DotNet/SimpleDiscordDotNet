@@ -36,6 +36,7 @@ internal sealed partial class GatewayClient
     {
         if (string.IsNullOrEmpty(_sessionId))
         {
+            Interlocked.Exchange(ref _isReady, 0);
             await IdentifyAsync(ct).ConfigureAwait(false);
             return;
         }

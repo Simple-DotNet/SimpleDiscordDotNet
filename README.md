@@ -130,6 +130,11 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ## Version History
 
+### v1.10.17 - Connected Event Reliability Fix
+- **Connected Event Fix** — `Connected` event now fires after every full gateway reconnection (IDENTIFY), not just the initial one. Previously, `Disconnected` would fire on transient network issues, but `Connected` only fired once on the first `READY` due to an `_isReady` flag that was never reset. When a session expired during reconnect, the subsequent fresh IDENTIFY/READY cycle would silently skip firing `Connected`, leaving consumers tracking `IsConnected` permanently stuck at "Disconnected".
+- **_isReady** is now reset to 0 in two code paths: `ResumeAsync` fallback-to-identify (when `_sessionId` is empty), and op=9 INVALID_SESSION handler (when resume isn't possible). This guarantees that `Connected` fires on every full reconnect, matching consumer expectations.
+- ✅ **0 breaking changes** — All existing API and event types unchanged.
+
 ### v1.10.16 - Disconnected Event Reliability Fix
 - **Disconnected Event Fix** — `Disconnected` now fires reliably before every silent reconnect attempt, not just on WebSocket close frames. Added to four code paths: missed heartbeat ACKs, receive loop exceptions, socket state loss (half-close without close frame), and op=7 RECONNECT requests. Upstream consumers tracking `IsConnected` via events will no longer show stale "Connected" state after silent connection loss.
 - ✅ **0 breaking changes** — All existing API and event types unchanged.
