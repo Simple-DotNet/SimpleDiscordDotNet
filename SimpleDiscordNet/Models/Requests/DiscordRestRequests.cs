@@ -1,3 +1,5 @@
+using SimpleDiscordNet.Primitives;
+
 namespace SimpleDiscordNet.Models.Requests;
 
 internal sealed class ChannelPermissionOverrideRequest
@@ -118,6 +120,8 @@ internal sealed class EditMessageRequest
 {
     public string content { get; init; } = string.Empty;
     public Embed[]? embeds { get; init; }
+    public IComponent[]? components { get; init; }
+    public AttachmentReference[]? attachments { get; init; }
 }
 
 internal sealed class ModifyGuildRequest

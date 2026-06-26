@@ -869,6 +869,41 @@ public sealed class DiscordBot : IDiscordBot
         => EditMessageAsync(channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), content, embed, ct);
 
     /// <summary>
+    /// Edits a message using a MessageBuilder. Supports file attachments, embeds, and components.
+    /// Only works on messages sent by the bot.
+    /// Example: await bot.EditMessageAsync(channelId, messageId, new MessageBuilder().WithContent("Updated").AddFile("chart.png", bytes));
+    /// </summary>
+    public async Task<DiscordMessage?> EditMessageAsync(ulong channelId, ulong messageId, MessageBuilder builder, CancellationToken ct = default)
+    {
+        MessagePayload payload = builder.Build();
+        var files = builder.GetFiles();
+        bool hasFiles = files is not null && files.Count > 0;
+
+        if (hasFiles)
+        {
+            var request = new EditMessageRequest
+            {
+                content = payload.content ?? string.Empty,
+                embeds = payload.embeds,
+                components = payload.components,
+                attachments = payload.attachments
+            };
+            return await _rest.PatchMultipartAsync<DiscordMessage>(
+                $"/channels/{channelId}/messages/{messageId}", request, files!, ct).ConfigureAwait(false);
+        }
+
+        var editPayload = new EditMessageRequest
+        {
+            content = payload.content ?? string.Empty,
+            embeds = payload.embeds,
+            components = payload.components,
+            attachments = payload.attachments
+        };
+        return await _rest.PatchMessageAsync<DiscordMessage>(
+            channelId.ToString(CultureInfo.InvariantCulture), messageId.ToString(CultureInfo.InvariantCulture), editPayload, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Deletes a message. Requires appropriate permissions.
     /// Example: await bot.DeleteMessageAsync(channelId, messageId);
     /// </summary>
