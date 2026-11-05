@@ -30,6 +30,11 @@ public sealed record InteractionCreateEvent
     public MessageComponentData? Component { get; init; }
     // Present when Type == ModalSubmit
     public ModalSubmitData? Modal { get; init; }
+
+    /// <summary>The permissions the bot has where this interaction happened.</summary>
+    public ulong? AppPermissions { get; init; }
+    // The shard that received this interaction. Null when the bot isn't sharded.
+    public int? ShardId { get; init; }
 }
 
 public sealed record ApplicationCommandData
@@ -41,6 +46,10 @@ public sealed record ApplicationCommandData
     // When present, this is the subcommand name (direct or under SubcommandGroup)
     public string? Subcommand { get; init; }
     public IReadOnlyList<InteractionOption> Options { get; init; } = [];
+    // The user or message a context menu command was used on
+    public string? TargetId { get; init; }
+    // Users, members, roles, channels, messages and attachments referenced by this command
+    public ResolvedData? Resolved { get; init; }
 }
 
 public sealed record InteractionOption
@@ -48,6 +57,7 @@ public sealed record InteractionOption
     public required string Name { get; init; }
     public string? String { get; init; }
     public long? Integer { get; init; }
+    public double? Number { get; init; }
     public bool? Boolean { get; init; }
     public bool? Focused { get; init; }
     public IReadOnlyList<InteractionOption> Options { get; init; } = [];
@@ -63,7 +73,7 @@ public sealed record MessageComponentData
 }
 
 /// <summary>
-/// Contains resolved entities from entity select menus (user, role, channel, mentionable)
+/// Contains entities Discord resolved for an interaction: entity select menus, command options, and context menu targets
 /// </summary>
 public sealed record ResolvedData
 {
@@ -71,18 +81,26 @@ public sealed record ResolvedData
     public Dictionary<string, Entities.DiscordMember>? Members { get; init; }
     public Dictionary<string, Entities.DiscordRole>? Roles { get; init; }
     public Dictionary<string, Entities.DiscordChannel>? Channels { get; init; }
+    public Dictionary<string, Entities.DiscordMessage>? Messages { get; init; }
+    public Dictionary<string, Entities.Attachment>? Attachments { get; init; }
 }
 
 public sealed record ModalSubmitData
 {
     public required string CustomId { get; init; }
     public IReadOnlyList<TextInputValue> Inputs { get; init; } = [];
+
+    /// <summary>Discord's data for uploaded files and chosen entities.</summary>
+    public ResolvedData? Resolved { get; init; }
 }
 
 public sealed record TextInputValue
 {
     public required string CustomId { get; init; }
     public string? Value { get; init; }
+
+    /// <summary>The chosen values or uploaded file IDs, for fields that send a list.</summary>
+    public IReadOnlyList<string> Values { get; init; } = [];
 }
 
 internal sealed class InteractionResponse
@@ -98,4 +116,5 @@ internal sealed class InteractionResponseData
     public int? flags { get; set; }
     public IComponent[]? components { get; set; }
     public AllowedMentionsPayload? allowed_mentions { get; set; }
+    public PollRequest? poll { get; set; }
 }

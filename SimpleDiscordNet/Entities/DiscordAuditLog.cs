@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SimpleDiscordNet.Entities;
 
@@ -76,9 +77,11 @@ public sealed record AuditLogChange
 public sealed record AuditLogOptions
 {
     /// <summary>Number of days after which inactive members were kicked</summary>
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public int? delete_member_days { get; init; }
 
     /// <summary>Number of members removed by the prune</summary>
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public int? members_removed { get; init; }
 
     /// <summary>Channel in which the entities were targeted</summary>
@@ -88,6 +91,7 @@ public sealed record AuditLogOptions
     public string? message_id { get; init; }
 
     /// <summary>Number of entities that were targeted</summary>
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public int? count { get; init; }
 
     /// <summary>ID of the overwritten entity</summary>

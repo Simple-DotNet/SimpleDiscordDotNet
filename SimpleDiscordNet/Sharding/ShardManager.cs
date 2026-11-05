@@ -18,17 +18,31 @@ internal sealed class ShardManager : IDisposable
     private readonly DiscordIntents _intents;
     private readonly JsonSerializerOptions _json;
     private readonly NativeLogger _logger;
-    private readonly bool _enableGatewayDebug;
+    private readonly Action<string>? _gatewayDebugLog;
     private readonly ConcurrentDictionary<int, Shard> _shards = new();
+    private volatile IdentifyRateLimiter _identifyLimiter = new(maxConcurrency: 1);
     private volatile bool _disposed;
 
-    public ShardManager(string token, DiscordIntents intents, JsonSerializerOptions json, NativeLogger logger, bool enableGatewayDebug = false)
+    /// <summary>
+    /// Raised for each new shard before it connects, so subscribers can't miss its first events.
+    /// </summary>
+    public event Action<Shard>? ShardCreated;
+
+    public ShardManager(string token, DiscordIntents intents, JsonSerializerOptions json, NativeLogger logger, Action<string>? gatewayDebugLog = null)
     {
         _token = token;
         _intents = intents;
         _json = json;
         _logger = logger;
-        _enableGatewayDebug = enableGatewayDebug;
+        _gatewayDebugLog = gatewayDebugLog;
+    }
+
+    /// <summary>
+    /// Applies Discord's max_concurrency value to shards identifying from this process.
+    /// </summary>
+    public void SetMaxConcurrency(int maxConcurrency)
+    {
+        _identifyLimiter = new IdentifyRateLimiter(maxConcurrency);
     }
 
     /// <summary>
@@ -39,7 +53,7 @@ internal sealed class ShardManager : IDisposable
     {
         if (_disposed) throw new ObjectDisposedException(nameof(ShardManager));
 
-        var shard = new Shard(shardId, totalShards, _token, _intents, _json, _logger, _enableGatewayDebug);
+        var shard = new Shard(shardId, totalShards, _token, _intents, _json, _logger, _gatewayDebugLog, (id, token) => _identifyLimiter.WaitAsync(id, token));
         if (!_shards.TryAdd(shardId, shard))
         {
             shard.Dispose();
@@ -48,6 +62,7 @@ internal sealed class ShardManager : IDisposable
 
         try
         {
+            ShardCreated?.Invoke(shard);
             await shard.ConnectAsync(ct).ConfigureAwait(false);
             _logger.Log(LogLevel.Information, $"Shard {shardId}/{totalShards} connected successfully");
             return shard;

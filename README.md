@@ -6,14 +6,20 @@ A lightweight, dependency-free Discord bot SDK for .NET 10 that provides direct 
 
 SimpleDiscordDotNet is designed for developers who want:
 - **Zero dependencies** - BCL only, no external packages
-- **Performance** - Memory-optimized with Span<T> and modern .NET 10 APIs for 30-50% less GC pressure
+- **Performance** - UTF-8 JSON handling, dictionary-based cache lookups and per-resource rate limiting
 - **Simplicity** - Clean, approachable API with builder patterns
-- **Modern C#** - Built for .NET 10 with C# 14 features and span-based APIs
-- **Production-ready** - Advanced rate limiting, comprehensive error handling, and extensive API coverage
+- **Modern C#** - Built for .NET 10 with C# 14 features
+- **Broad API coverage** - Bucket-aware rate limiting and most of Discord's REST and gateway API
 
 ## Key Features
 
 - ✅ Slash commands, components, and modals with attribute-based handlers
+- ✅ Checks, cooldowns, enum options and event handlers as attributes
+- ✅ Built-in confirmations and pagination
+- ✅ Constructor injection for handlers, with no reflection
+- ✅ Modals defined as plain classes, with fields filled in for you
+- ✅ Polls, threads, forum posts and layout messages (Components V2)
+- ✅ Command translation, and DM and user-install support, through attributes
 - ✅ Source generator for zero-reflection command/component discovery
 - ✅ Ambient context for accessing cached guilds, channels, members, roles
 - ✅ **Live observable collections** - Thread-safe `INotifyCollectionChanged` for WPF/MAUI/Avalonia UI binding
@@ -21,8 +27,8 @@ SimpleDiscordDotNet is designed for developers who want:
 - ✅ Advanced rate limiting with bucket management and monitoring
 - ✅ Full Discord API v10 support (messages, reactions, permissions, roles, channels, threads, etc.)
 - ✅ Native AOT and trimming compatible
-- ✅ Memory-optimized with `Span<T>`, `Memory<T>`, and zero-allocation APIs
-- ✅ **Horizontal sharding** - 3 modes: single process, multi-shard, or distributed coordinator/worker
+- ✅ Span-based formatting helpers and direct UTF-8 serialization
+- ✅ **Sharding** - Run all shards in one process, or use experimental distributed coordinator/worker mode
 
 ## Quick Example
 
@@ -30,6 +36,14 @@ SimpleDiscordDotNet is designed for developers who want:
 using SimpleDiscordNet;
 using SimpleDiscordNet.Commands;
 using SimpleDiscordNet.Primitives;
+
+var bot = DiscordBot.NewBuilder()
+    .WithToken(Environment.GetEnvironmentVariable("DISCORD_TOKEN")!)
+    .WithIntents(DiscordIntents.Guilds | DiscordIntents.GuildMessages)
+    .Build();
+
+await bot.StartAsync();
+await Task.Delay(Timeout.Infinite);
 
 public sealed class AppCommands
 {
@@ -47,9 +61,9 @@ public sealed class AppCommands
     [SlashCommand("chart", "Send a chart image")]
     public async Task ChartAsync(InteractionContext ctx)
     {
-        byte[] chartBytes = GenerateChart();
+        byte[] chartBytes = await File.ReadAllBytesAsync("chart.png");
 
-        // Auto-defers and sends file — no manual defer needed
+        // Slash commands are deferred automatically, so slow work is fine here
         await ctx.RespondAsync("Here's the latest chart:",
             fileName: "chart.png",
             fileData: chartBytes);
@@ -64,33 +78,26 @@ public sealed class AppCommands
         await ctx.RespondAsync($"Hello {user?.Username}! You joined this server on {member?.Joined_At}");
     }
 }
-
-var bot = DiscordBot.NewBuilder()
-    .WithToken(Environment.GetEnvironmentVariable("DISCORD_TOKEN")!)
-    .WithIntents(DiscordIntents.Guilds | DiscordIntents.GuildMessages)
-    .Build();
-
-await bot.StartAsync();
-await Task.Delay(Timeout.Infinite);
 ```
 
 ## Documentation
 
-**📖 Full documentation is available in the [Wiki](./wiki)**
+**📖 Full documentation is available in the [Wiki](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki)**
 
-- [Installation](./wiki/Installation.md) - Get started with NuGet or source reference
-- [Getting Started](./wiki/Getting-Started.md) - Your first bot in minutes
-- [Beginner's Guide](./wiki/Beginners-Guide.md) - **NEW!** Step-by-step guide for Discord bot beginners
-- [Configuration](./wiki/Configuration.md) - Builder patterns, DI, intents
-- [Commands](./wiki/Commands.md) - Slash commands, components, modals
-- [Permissions](./wiki/Permissions.md) - **NEW v1.8.0!** Dual-layer command permissions
-- [Moderation](./wiki/Moderation.md) - **NEW v1.8.0!** Bans, kicks, timeouts, voice control, audit logs
-- [Working with Entities](./wiki/Entities.md) - Channels, guilds, members, messages, and roles
-- [Events](./wiki/Events.md) - Gateway events and logging
-- [Sharding](./wiki/Sharding.md) - Horizontal scaling with distributed sharding
-- [API Reference](./wiki/API-Reference.md) - Complete API documentation
-- [Rate Limit Monitoring](./wiki/Rate-Limit-Monitoring.md) - Advanced monitoring and analytics
-- [FAQ](./wiki/FAQ.md) - Common questions and troubleshooting
+- [Installation](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Installation) - Get started with NuGet or source reference
+- [Getting Started](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Getting-Started) - Your first bot in minutes
+- [Beginner's Guide](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Beginners-Guide) - Step-by-step guide for Discord bot beginners
+- [Feature Examples](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Feature-Examples) - A simple and a realistic example of every feature
+- [Configuration](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Configuration) - Builder patterns, DI, intents
+- [Commands](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Commands) - Slash commands, components, modals
+- [Permissions](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Permissions) - Dual-layer command permissions
+- [Moderation](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Moderation) - Bans, kicks, timeouts, voice control, audit logs
+- [Working with Entities](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Entities) - Channels, guilds, members, messages, and roles
+- [Events](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Events) - Gateway events and logging
+- [Sharding](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Sharding) - Scaling across shards and processes
+- [API Reference](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/API-Reference) - Every public type and member
+- [Rate Limit Monitoring](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Rate-Limit-Monitoring) - Monitoring and analytics
+- [FAQ](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/FAQ) - Common questions and troubleshooting
 
 ## Installation
 
@@ -126,9 +133,96 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 
 ---
 
-**Ready to build your Discord bot?** Head to the [Wiki](./wiki) to get started!
+**Ready to build your Discord bot?** Head to the [Wiki](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki) to get started!
 
 ## Version History
+
+### v1.11.0
+
+A large release: new attribute-based features, plus reliability fixes across the library. Most changes need no code changes, but read the upgrade notes below first.
+
+**New features**
+
+- **Checks** - `[Cooldown]`, `[RequireRole]`, `[RequireBotPermissions]` and `[RequireOwner]` run before a handler and tell the user why they failed.
+- **Enum parameters** - An enum becomes a list of choices automatically.
+- **Return a reply** - Handlers can return a string, `EmbedBuilder` or `MessageBuilder`, or a `Task` of one.
+- **Data in component IDs** - `[ButtonHandler("vote:{pollId}:{choice}")]` binds parts of the ID to parameters.
+- **Questions and pages** - `ctx.ConfirmAsync()`, `ctx.ChooseAsync()` and `ctx.PaginateAsync()`.
+- **Event attributes** - Over 40 attributes such as `[OnMemberJoined]`, `[OnMessageCreated]`, `[OnBanAdded]` and `[OnVoiceStateUpdated]`, plus `[OnEvent]` for the rarer ones.
+- **Services in handlers** - Handler classes can take services through their constructors, with `WithServices`.
+- **Error handling and help** - `[OnCommandError]` for all failures, and `[assembly: GenerateHelp]` for a help command.
+- **Compile errors** - Library diagnostics now point at the file and line.
+- **Attribute modals** - Define a form as a class with `[Modal]` and field attributes such as `[ModalText]`, `[ModalSelect]`, `[ModalCheckbox]` and `[ModalFile]`. Open it with `ctx.OpenModalAsync<TForm>()` and receive it filled in through `[ModalHandler]`. Modals use Discord's current Label components.
+- **Where commands work** - `[GuildOnly]`, `[AllowInDMs]` and `[UserInstallable]`.
+- **Translations** - `[Localized]` on commands, groups, parameters and context menu commands.
+- **Polls** - `builder.WithPoll(...)`, `PollBuilder`, `message.EndPollAsync()` and `message.GetPollVotersAsync()`.
+- **Threads and forum posts** - `channel.CreateThreadAsync()`, `message.CreateThreadAsync()`, `channel.CreateForumPostAsync()`, `channel.GetArchivedThreadsAsync()` and `guild.GetActiveThreadsAsync()`. Channels now expose forum tags and thread details.
+- **Layout messages** - Components V2 through `WithText`, `WithContainer`, `WithSection`, `WithGallery` and `WithSeparator`.
+- **More actions** - `message.ForwardAsync()`, `message.UnpinAsync()`, `guild.SearchMembersAsync()`, `guild.SearchMessagesAsync()`, `guild.BulkBanAsync()` and application emoji methods.
+- **Permissions** - `PermissionFlags` now includes `PinMessages`, `SendPolls`, `CreateEvents`, `CreateGuildExpressions`, `BypassSlowmode`, `UseExternalApps` and more.
+- **Events** - `ChannelPinsUpdated`, `ThreadMemberUpdated`, `ThreadMembersUpdated`, `ThreadListSynced` and `GatewayRateLimited`.
+- **Hidden channels** - `DiscordChannel.IsObfuscated` detects channels Discord hides from the bot.
+
+**Upgrade notes**
+
+- **Re-sync your commands.** `ulong` parameters are now string options, because Discord's integer options can't hold a snowflake. Context menu commands are registered with the empty description Discord requires.
+- **`[CommandOption]`** - `Required`, `MinLength`, `MaxLength`, `MinValue` and `MaxValue` are now non-nullable. The old nullable properties couldn't be set from an attribute, so existing code that compiled isn't affected.
+- **Channel creation** - The `permissionOverwrites` parameter is now strongly typed. Code passing an `object` needs updating.
+- **`IDiscordBot`** - Gained `RateLimitMonitor`, optional `reason` parameters on the kick, ban, unban and timeout methods, and the new thread, poll, search and emoji methods. Custom implementations need updating, including custom `IDiscordContextOperations`.
+- **Pins** - Pinning now needs Discord's `PinMessages` permission rather than `ManageMessages`. `GetPinnedMessagesAsync` uses Discord's current routes and returns every pin.
+- **Forum posts** - `WithForumPost` now goes to Discord's thread route, so the returned message's `ChannelId` is the new post's thread.
+- **`TextInput`** - The `label` argument is now optional. Wrap a text input in a `Label` instead, because Discord has deprecated the old form.
+- **Gateway member limits** - Discord allows one full member request per guild every 30 seconds. Rejected requests are now retried after the wait Discord asks for.
+- **Thread cache** - Threads now stay in the cache as they're created, updated and deleted.
+- **Option defaults** - A command parameter's default value now applies when the option is omitted. `int age = 18` used to arrive as 0.
+- **`[CommandChoice]`** - It failed to compile before and now works. `CommandChoice.Create` builds a choice for autocomplete.
+- **`DiscordBot.FromOptions`** - It now registers your generated commands, which it used to skip.
+- **Handler classes** - A class whose only public constructor takes parameters now gets them from `WithServices`, rather than being a compile error.
+- **`DiscordRole.Guild`** is no longer `required`.
+- **POST retries** - POST requests are no longer retried on 5xx responses, because Discord may have already processed them. Handle these errors yourself where it matters.
+- **`GuildRemoved`** no longer fires when a guild is only temporarily unavailable during an outage.
+- **Gateway debug output** from `WithGatewayDebug()` now goes through the logger at Debug level rather than the console.
+- **Packaging** - The project no longer builds a package on every build. Use `dotnet pack`.
+- **Distributed sharding** - All nodes must upgrade together, because cluster traffic now requires a secret derived from the bot token. This mode is experimental, and there's no automatic coordinator failover.
+
+**Entities and caching**
+
+- Fixed parsing of users, members, roles, guilds and audit logs that failed or lost data on real gateway payloads.
+- Messages in DMs and uncached channels now reach handlers.
+- Member, channel and role lookups are now dictionary lookups, and member chunks are added in batches.
+- Live collections now raise change notifications for bulk updates.
+
+**Gateway**
+
+- Rewrote connection handling: resume uses `resume_gateway_url`, close codes follow Discord's rules, heartbeat requests are answered, and the first heartbeat is jittered.
+- Fatal close codes stop reconnecting, and outgoing commands respect the 120 per 60 seconds send limit.
+
+**REST**
+
+- Rate limits are tracked per bucket and per channel, guild or webhook. Interaction endpoints are exempt from the global limit.
+- `RateLimitMonitor` is now implemented, and tokens are redacted from logs.
+- Added audit log `reason` support, `DiscordMember.KickAsync` and `DiscordMember.BanAsync`, and paginated `GetAllCurrentUserGuildsAsync`.
+
+**Commands**
+
+- `DiscordUser`, `DiscordMember`, `DiscordChannel`, `DiscordRole`, attachment, `double` and `float` parameters now work.
+- Added `TargetId`, `TargetUser`, `TargetMember` and `TargetMessage` to `InteractionContext` for context menu commands.
+- Unsupported parameter types are now a compile error (SDN004) instead of failing at runtime.
+
+**Sharding**
+
+- Cluster traffic is authenticated, shards honor `max_concurrency` when identifying, and URL handling is fixed for trailing slashes and wildcard hosts.
+- Cluster traffic uses `http://` unless you set up TLS, so keep it on a private network or behind a TLS proxy. See the [Sharding guide](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Sharding).
+
+**Quality**
+
+- Added an automated test suite, a Native AOT smoke test, and CI that runs both.
+- Corrected the documentation against the real API.
+
+### v1.10.17 - Connected Event Reliability Fix
+- **Connected Event Fix** — `Connected` event now fires after every full gateway reconnection (IDENTIFY), not just the initial one. Previously, `Disconnected` would fire on transient network issues, but `Connected` only fired once on the first `READY` due to an `_isReady` flag that was never reset. When a session expired during reconnect, the subsequent fresh IDENTIFY/READY cycle would silently skip firing `Connected`, leaving consumers tracking `IsConnected` permanently stuck at "Disconnected".
+- **_isReady** is now reset to 0 in two code paths: `ResumeAsync` fallback-to-identify (when `_sessionId` is empty), and op=9 INVALID_SESSION handler (when resume isn't possible). This guarantees that `Connected` fires on every full reconnect, matching consumer expectations.
+- ✅ **0 breaking changes** — All existing API and event types unchanged.
 
 ### v1.10.16 - Disconnected Event Reliability Fix
 - **Disconnected Event Fix** — `Disconnected` now fires reliably before every silent reconnect attempt, not just on WebSocket close frames. Added to four code paths: missed heartbeat ACKs, receive loop exceptions, socket state loss (half-close without close frame), and op=7 RECONNECT requests. Upstream consumers tracking `IsConnected` via events will no longer show stale "Connected" state after silent connection loss.
@@ -225,7 +319,7 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
   - Full `AuditLogAction` enum for all Discord actions
 - ✅ **Bug fixes** - Resolved 3 nullable reference warnings (CS8602, CS8601)
 - ✅ **API compatibility** - All methods support both string and ulong overloads
-- 📖 New [Moderation Guide](./wiki/Moderation.md) with comprehensive examples
+- 📖 New [Moderation Guide](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Moderation) with comprehensive examples
 
 ### v1.6.8 - Dual-Layer Command Permissions (2025-01-15)
 - ✅ **Discord-level permissions** - `[RequirePermissions]` attribute for default visibility
@@ -238,7 +332,7 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 - ✅ **100% AOT compatible** - Delegate-based, no reflection
 - ✅ **Shard-safe** - Works across all sharding modes
 - ✅ **Beginner-friendly** - Simple attribute + delegate API
-- 📖 New [Permissions Guide](./wiki/Permissions.md) with database integration examples
+- 📖 New [Permissions Guide](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Permissions) with database integration examples
 
 ### v1.6.0 - Cache-First Entity Retrieval & Live Collections (2025-01-11)
 - ✅ **Cache-first entity retrieval** - Optional `useCache` parameter (default: true)
@@ -316,6 +410,7 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 - ✅ **Enhanced type safety** - MessagePayload, BulkDeleteMessagesRequest, BanMemberRequest, HttpErrorResponse
 - ✅ **Code quality improvements** - Removed redundant type specifications and method overload warnings
 - 🔒 **Security hardened** - TLS 1.3+ for shard coordination endpoints
+- Superseded: TLS for cluster traffic now depends on your setup. See the v1.11.0 notes.
 
 ### v1.3.0 - Sharding Support (2025-12-19)
 - ✅ Added 3-mode sharding system: single process, multi-shard, distributed
@@ -325,4 +420,4 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTI
 - ✅ Shard-aware InteractionContext for commands
 - ✅ Full AoT compliance with source-generated JSON serialization
 - ✅ Zero reflection usage, ready for native compilation
-- 📖 See [SHARDING_IMPLEMENTATION.md](SHARDING_IMPLEMENTATION.md) and [SHARDING_INTEGRATION_GUIDE.md](SHARDING_INTEGRATION_GUIDE.md)
+- 📖 See the [Sharding guide](https://github.com/Simple-DotNet/SimpleDiscordDotNet/wiki/Sharding)

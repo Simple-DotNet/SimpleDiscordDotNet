@@ -105,14 +105,16 @@ internal sealed class RateLimitBucket
                 }
             }
 
-            if (response.Headers.TryGetValues("X-RateLimit-Reset", out var resetValues))
+            // Reset-After is relative, so it isn't affected by clock differences with Discord
+            if (TryGetDouble(response, "X-RateLimit-Reset-After", out double resetAfterSeconds))
             {
-                using var enumerator = resetValues.GetEnumerator();
-                if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double resetTimestamp))
-                {
-                    _resetAt = DateTimeOffset.FromUnixTimeSeconds((long)resetTimestamp);
-                    wasUpdated = true;
-                }
+                _resetAt = now + TimeSpan.FromSeconds(resetAfterSeconds);
+                wasUpdated = true;
+            }
+            else if (TryGetDouble(response, "X-RateLimit-Reset", out double resetTimestamp))
+            {
+                _resetAt = DateTimeOffset.FromUnixTimeMilliseconds((long)(resetTimestamp * 1000));
+                wasUpdated = true;
             }
 
             _isGlobal = false;
@@ -153,25 +155,8 @@ internal sealed class RateLimitBucket
             _total429s++;
             DateTimeOffset now = _time.GetUtcNow();
 
-            TimeSpan retryAfter = TimeSpan.FromSeconds(1);
-            if (response.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryValues))
-            {
-                using var enumerator = retryValues.GetEnumerator();
-                if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double retrySeconds))
-                {
-                    retryAfter = TimeSpan.FromSeconds(retrySeconds);
-                }
-            }
-
-            bool isGlobal = false;
-            if (response.Headers.TryGetValues("X-RateLimit-Global", out IEnumerable<string>? globalValues))
-            {
-                using IEnumerator<string> enumerator = globalValues.GetEnumerator();
-                if (enumerator.MoveNext())
-                {
-                    isGlobal = enumerator.Current.AsSpan().Equals("true", StringComparison.Ordinal);
-                }
-            }
+            TimeSpan retryAfter = GetRetryAfter(response);
+            bool isGlobal = IsGlobalLimit(response);
 
             _resetAt = now + retryAfter > _resetAt ? now + retryAfter : _resetAt;
             _remaining = 0;
@@ -193,6 +178,20 @@ internal sealed class RateLimitBucket
         {
             _semaphore.Release();
         }
+    }
+
+    internal static TimeSpan GetRetryAfter(HttpResponseMessage response)
+        => TryGetDouble(response, "Retry-After", out double seconds) ? TimeSpan.FromSeconds(seconds) : TimeSpan.FromSeconds(1);
+
+    internal static bool IsGlobalLimit(HttpResponseMessage response)
+        => response.Headers.TryGetValues("X-RateLimit-Global", out IEnumerable<string>? values)
+           && string.Equals(values.FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryGetDouble(HttpResponseMessage response, string header, out double value)
+    {
+        value = 0;
+        return response.Headers.TryGetValues(header, out IEnumerable<string>? values)
+               && double.TryParse(values.FirstOrDefault(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 
     public RateLimitBucketInfo GetInfo()

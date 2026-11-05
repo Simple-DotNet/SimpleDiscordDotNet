@@ -6,51 +6,76 @@ namespace SimpleDiscordNet.Gateway;
 
 internal sealed partial class GatewayClient
 {
+    private const int MaxMissedHeartbeatAcks = 2;
+
     private void StartHeartbeat()
     {
         lock (_heartbeatLock)
         {
-            if (_ctsHeartbeat != null)
-            {
-                try { _ctsHeartbeat.Cancel(); } catch { /* ignored */ }
-                try { _ctsHeartbeat.Dispose(); } catch { /* ignored */ }
-            }
+            StopHeartbeatLocked();
             _ctsHeartbeat = new CancellationTokenSource();
             _ = HeartbeatLoopAsync(_ctsHeartbeat.Token);
         }
     }
 
+    private void StopHeartbeat()
+    {
+        lock (_heartbeatLock)
+        {
+            StopHeartbeatLocked();
+        }
+    }
+
+    private void StopHeartbeatLocked()
+    {
+        if (_ctsHeartbeat == null) return;
+        try { _ctsHeartbeat.Cancel(); } catch { /* ignored */ }
+        try { _ctsHeartbeat.Dispose(); } catch { /* ignored */ }
+        _ctsHeartbeat = null;
+    }
+
     private async Task HeartbeatLoopAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        try
         {
-            try
+            // Discord asks for a random first delay, so reconnecting clients don't all beat together
+            await Task.Delay((int)(_heartbeatIntervalMs * Random.Shared.NextDouble()), ct).ConfigureAwait(false);
+
+            while (!ct.IsCancellationRequested)
             {
+                try
+                {
+                    if (_awaitingHeartbeatAck && Interlocked.Increment(ref _missedHeartbeatAcks) >= MaxMissedHeartbeatAcks)
+                    {
+                        // The connection is dead. Aborting fails the pending receive, and the receive loop reconnects.
+                        _ws.Abort();
+                        return;
+                    }
+
+                    await SendHeartbeatAsync(ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Error?.Invoke(this, ex);
+                }
+
                 await Task.Delay(_heartbeatIntervalMs, ct).ConfigureAwait(false);
-                await SendHeartbeatAsync(ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex)
-            {
-                Error?.Invoke(this, ex);
-                try { await Task.Delay(1000, ct).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Heartbeat stopped
         }
     }
 
     private async Task SendHeartbeatAsync(CancellationToken ct)
     {
-        if (_awaitingHeartbeatAck)
-        {
-            int missed = Interlocked.Increment(ref _missedHeartbeatAcks);
-            if (missed >= 2 && _autoReconnect)
-            {
-                Disconnected?.Invoke(this, null);
-                await SafeReconnectAsync(ct).ConfigureAwait(false);
-                return;
-            }
-        }
-        Heartbeat hb = new() { d = Interlocked.Read(ref _seq) };
+        long seq = Interlocked.Read(ref _seq);
+        Heartbeat hb = new() { d = seq > 0 ? seq : null };
         ArrayBufferWriter<byte> buffer = new();
         using (Utf8JsonWriter writer = new(buffer))
         {

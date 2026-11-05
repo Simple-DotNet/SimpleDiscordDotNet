@@ -85,6 +85,16 @@ public static class DiscordEvents
     public static event EventHandler<ThreadEvent>? ThreadUpdated;
     /// <summary>Fired when a thread is deleted from a guild.</summary>
     public static event EventHandler<ThreadEvent>? ThreadDeleted;
+    /// <summary>Raised when the bot's own membership of a thread changes.</summary>
+    public static event EventHandler<ThreadMemberUpdateEvent>? ThreadMemberUpdated;
+    /// <summary>Raised when people are added to or removed from a thread.</summary>
+    public static event EventHandler<ThreadMembersUpdateEvent>? ThreadMembersUpdated;
+    /// <summary>Raised when the bot gains access to a channel and receives its active threads.</summary>
+    public static event EventHandler<ThreadListSyncEvent>? ThreadListSynced;
+    /// <summary>Raised when a message is pinned or unpinned.</summary>
+    public static event EventHandler<ChannelPinsUpdateEvent>? ChannelPinsUpdated;
+    /// <summary>Raised when Discord rejects a gateway request for being too frequent.</summary>
+    public static event EventHandler<GatewayRateLimitedEvent>? GatewayRateLimited;
 
     /// <summary>Fired when a message is created in any channel the bot can see.</summary>
     public static event EventHandler<MessageCreateEvent>? MessageCreated;
@@ -238,6 +248,11 @@ public static class DiscordEvents
     internal static void RaiseThreadCreated(object? sender, ThreadEvent e) => ThreadCreated?.Invoke(sender, e);
     internal static void RaiseThreadUpdated(object? sender, ThreadEvent e) => ThreadUpdated?.Invoke(sender, e);
     internal static void RaiseThreadDeleted(object? sender, ThreadEvent e) => ThreadDeleted?.Invoke(sender, e);
+    internal static void RaiseThreadMemberUpdated(object? sender, ThreadMemberUpdateEvent e) => ThreadMemberUpdated?.Invoke(sender, e);
+    internal static void RaiseThreadMembersUpdated(object? sender, ThreadMembersUpdateEvent e) => ThreadMembersUpdated?.Invoke(sender, e);
+    internal static void RaiseThreadListSynced(object? sender, ThreadListSyncEvent e) => ThreadListSynced?.Invoke(sender, e);
+    internal static void RaiseChannelPinsUpdated(object? sender, ChannelPinsUpdateEvent e) => ChannelPinsUpdated?.Invoke(sender, e);
+    internal static void RaiseGatewayRateLimited(object? sender, GatewayRateLimitedEvent e) => GatewayRateLimited?.Invoke(sender, e);
 
     internal static void RaiseMessageCreated(object? sender, MessageCreateEvent e) => MessageCreated?.Invoke(sender, e);
     internal static void RaiseMessageUpdated(object? sender, MessageUpdateEvent e) => MessageUpdated?.Invoke(sender, e);
@@ -308,9 +323,9 @@ public static class DiscordEvents
     /// to break strong references that would otherwise prevent GC.
     /// </summary>
     /// <remarks>
-    /// After calling this method, all events will be <c>null</c> and
-    /// no further invocations will reach any subscriber. Any code
-    /// that needs events after this call MUST re-subscribe.
+    /// After calling this method, no further invocations will reach any subscriber.
+    /// Any code that needs events after this call MUST re-subscribe.
+    /// Handlers from attributes such as [OnMemberJoined] stay connected.
     /// </remarks>
     public static void UnsubscribeAll()
     {
@@ -332,6 +347,11 @@ public static class DiscordEvents
         ThreadCreated = null;
         ThreadUpdated = null;
         ThreadDeleted = null;
+        ThreadMemberUpdated = null;
+        ThreadMembersUpdated = null;
+        ThreadListSynced = null;
+        ChannelPinsUpdated = null;
+        GatewayRateLimited = null;
         MessageCreated = null;
         MessageUpdated = null;
         MessageDeleted = null;
@@ -379,5 +399,7 @@ public static class DiscordEvents
         GuildJoinRequestDeleted = null;
         PollVoteAdded = null;
         PollVoteRemoved = null;
+
+        Commands.GeneratedEvents.Restore();
     }
 }

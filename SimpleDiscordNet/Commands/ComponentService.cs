@@ -30,20 +30,45 @@ internal sealed class ComponentService
         if (string.IsNullOrEmpty(customId))
             return;
 
+        // Buttons from ConfirmAsync, ChooseAsync and PaginateAsync go to the code waiting for them
+        if (InteractiveSessions.IsSessionButton(customId))
+        {
+            InteractionContext click = new(rest, e);
+            if (!InteractiveSessions.TryDeliver(customId, click))
+            {
+                await click.RespondAsync("⌛ This has expired.", null, true, ct: ct).ConfigureAwait(false);
+            }
+            return;
+        }
+
         // Prefer generated delegate-based handler when available
-        // For prefix matches, prefer longest match to avoid ambiguity
+        // An exact ID wins. Otherwise the match with the most fixed text wins, to avoid ambiguity
         ComponentHandler? gmatch = null;
+        Dictionary<string, string>? idValues = null;
         int bestLength = -1;
         foreach (ComponentHandler h in _generated)
         {
+            if (h.Template is { } template)
+            {
+                if (template.LiteralLength > bestLength && template.Match(customId) is { } values)
+                {
+                    gmatch = h;
+                    idValues = values;
+                    bestLength = template.LiteralLength;
+                }
+                continue;
+            }
+
             if (!h.Prefix && string.Equals(h.Id, customId, StringComparison.Ordinal))
             {
                 gmatch = h;
+                idValues = null;
                 break;
             }
             if (h.Prefix && customId.StartsWith(h.Id, StringComparison.Ordinal) && h.Id.Length > bestLength)
             {
                 gmatch = h;
+                idValues = null;
                 bestLength = h.Id.Length;
             }
         }
@@ -53,7 +78,11 @@ internal sealed class ComponentService
             bool deferred = false;
             try
             {
-                ctx = new InteractionContext(rest, e);
+                ctx = new InteractionContext(rest, e) { IdValues = idValues };
+
+                if (!await CommandChecks.PassAsync(gmatch.Checks, ctx, ct).ConfigureAwait(false))
+                    return;
+
                 if (e.Type == InteractionType.MessageComponent && gmatch.AutoDefer)
                 {
                     // If ephemeral, use DeferAsync (creates new response), otherwise DeferUpdateAsync (updates message)
@@ -74,7 +103,7 @@ internal sealed class ComponentService
                 _logger.Log(LogLevel.Error, $"Error executing component handler for '{customId}': {ex.Message}", ex);
 
                 // Send error response to Discord so user knows something went wrong
-                if (ctx is not null)
+                if (ctx is not null && !await CommandErrorHandlers.TryHandleAsync(ctx, ex, _logger).ConfigureAwait(false))
                 {
                     try
                     {

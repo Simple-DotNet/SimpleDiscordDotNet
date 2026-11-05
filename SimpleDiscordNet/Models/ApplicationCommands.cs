@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace SimpleDiscordNet.Models;
@@ -35,10 +36,45 @@ public sealed class ApplicationCommandDefinition
     // Example: "2048" for KickMembers, "0" to restrict to admins only
     // Reference: https://discord.com/developers/docs/topics/permissions
     public string? default_member_permissions { get; set; }
+
+    // Where a global command can be installed: 0 = server, 1 = user
+    public int[]? integration_types { get; set; }
+
+    // Where a global command can be used: 0 = server, 1 = bot DM, 2 = private channel
+    public int[]? contexts { get; set; }
+
+    // Translations, keyed by Discord locale
+    public Dictionary<string, string>? name_localizations { get; set; }
+    public Dictionary<string, string>? description_localizations { get; set; }
+
+    /// <summary>
+    /// Returns a copy for guild registration. Install and usage contexts only apply to global commands.
+    /// </summary>
+    internal ApplicationCommandDefinition ForGuild()
+    {
+        ApplicationCommandDefinition copy = (ApplicationCommandDefinition)MemberwiseClone();
+        copy.integration_types = null;
+        copy.contexts = null;
+        return copy;
+    }
 }
 
 public sealed class CommandChoice
 {
     public required string name { get; set; }
     public JsonElement? value { get; set; }
+
+    /// <summary>Creates a choice with a text value.</summary>
+    public static CommandChoice Create(string name, string value)
+        => new() { name = name, value = ParseValue($"\"{JsonEncodedText.Encode(value)}\"") };
+
+    /// <summary>Creates a choice with a number value.</summary>
+    public static CommandChoice Create(string name, double value)
+        => new() { name = name, value = ParseValue(value.ToString("R", CultureInfo.InvariantCulture)) };
+
+    private static JsonElement ParseValue(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
 }

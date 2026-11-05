@@ -1,5 +1,6 @@
 using SimpleDiscordNet;
 using SimpleDiscordNet.Commands;
+using SimpleDiscordNet.Entities;
 using SimpleDiscordNet.Primitives;
 
 namespace Examples;
@@ -72,31 +73,34 @@ public class Program
 
         // ===== Runtime Permission Examples =====
 
+        const ulong moderatorRoleId = 987654321;
+        const ulong adminRoleId = 987654322;
+
         // Example 1: Simple role check
-        // Only users with the "Moderator" role can use the ban command in guild "123456789"
+        // Only users with the moderator role can use the ban command in guild "123456789"
         bot.Permissions.RegisterGuildRule("123456789", "ban", ctx =>
-            ctx.Member?.Roles.Any(r => r.Name == "Moderator") ?? false);
+            ctx.Member?.HasRole(moderatorRoleId) ?? false);
 
         // Example 2: Multiple roles (OR logic)
-        // Users with either "Admin" OR "Senior Moderator" role can use kick command
+        // Users with either the admin OR the moderator role can use the kick command
         bot.Permissions.RegisterGuildRule("123456789", "kick", ctx =>
-            ctx.Member?.Roles.Any(r => r.Name == "Admin" || r.Name == "Senior Moderator") ?? false);
+            ctx.Member?.Roles.Any(id => id is adminRoleId or moderatorRoleId) ?? false);
 
-        // Example 3: Role ID check (more reliable than name)
+        // Example 3: Discord permission check
         bot.Permissions.RegisterGuildRule("123456789", "config", ctx =>
-            ctx.Member?.Roles.Any(r => r.Id == "987654321") ?? false);
+            ctx.Member?.HasPermission(PermissionFlags.ManageGuild) ?? false);
 
         // Example 4: Specific users (allowlist)
-        var allowedUsers = new[] { "111111111", "222222222", "333333333" };
+        ulong[] allowedUsers = [111111111, 222222222, 333333333];
         bot.Permissions.RegisterGuildRule("123456789", "info", ctx =>
-            allowedUsers.Contains(ctx.User.Id));
+            ctx.User != null && allowedUsers.Contains(ctx.User.Id));
 
         // Example 5: Complex logic (multiple conditions)
         bot.Permissions.RegisterGuildRule("123456789", "ban", ctx =>
         {
             // Must have moderator role AND account older than 30 days
-            bool hasModerator = ctx.Member?.Roles.Any(r => r.Name == "Moderator") ?? false;
-            bool accountOldEnough = (DateTimeOffset.UtcNow - ctx.User.CreatedAt).TotalDays >= 30;
+            bool hasModerator = ctx.Member?.HasRole(moderatorRoleId) ?? false;
+            bool accountOldEnough = ctx.User != null && (DateTimeOffset.UtcNow - ctx.User.CreatedAt).TotalDays >= 30;
             return hasModerator && accountOldEnough;
         });
 
@@ -109,7 +113,7 @@ public class Program
                 // Capture local variables for closure
                 var allowedRoleIds = cmd.AllowedRoleIds.ToHashSet();
                 bot.Permissions.RegisterGuildRule(config.GuildId, cmd.CommandName, ctx =>
-                    ctx.Member?.Roles.Any(r => allowedRoleIds.Contains(r.Id)) ?? false);
+                    ctx.Member?.Roles.Any(allowedRoleIds.Contains) ?? false);
             }
         }
 
@@ -140,5 +144,5 @@ public class GuildConfig
 public class RestrictedCommand
 {
     public required string CommandName { get; set; }
-    public List<string> AllowedRoleIds { get; set; } = new();
+    public List<ulong> AllowedRoleIds { get; set; } = new();
 }

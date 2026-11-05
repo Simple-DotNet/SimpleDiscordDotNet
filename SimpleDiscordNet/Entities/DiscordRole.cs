@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SimpleDiscordNet.Entities;
 
 public sealed class DiscordRole
@@ -5,12 +7,16 @@ public sealed class DiscordRole
     public required ulong Id { get; init; }
     public required string Name { get; init; }
 
-    /// <summary>The guild this role belongs to</summary>
-    public required DiscordGuild Guild { get; init; }
+    /// <summary>
+    /// The guild this role belongs to.
+    /// Note: Populated after deserialization as Discord's role API doesn't include guild in JSON.
+    /// </summary>
+    [JsonIgnore]
+    public DiscordGuild Guild { get; internal set; } = null!;
 
-    public int Color { get; internal set; }
-    public int Position { get; internal set; }
-    public ulong Permissions { get; internal set; }
+    [JsonInclude] public int Color { get; internal set; }
+    [JsonInclude] public int Position { get; internal set; }
+    [JsonInclude] public ulong Permissions { get; internal set; }
 
     /// <summary>Checks if this role has a specific permission</summary>
     public bool HasPermission(PermissionFlags permission) => (Permissions & (ulong)permission) != 0;

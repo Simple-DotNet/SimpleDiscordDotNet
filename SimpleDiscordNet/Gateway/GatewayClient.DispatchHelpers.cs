@@ -13,21 +13,7 @@ internal sealed partial class GatewayClient
         {
             // Ignore if not a guild channel (e.g., DM has no guild_id)
             if (!data.TryGetProperty("guild_id", out JsonElement gidProp)) return;
-            ulong id = data.GetProperty("id").GetDiscordId();
-            string name = data.TryGetProperty("name", out JsonElement n) ? (n.GetString() ?? string.Empty) : string.Empty;
-            int type = data.TryGetProperty("type", out JsonElement t) ? t.GetInt32() : 0;
-            ulong? parent = data.TryGetProperty("parent_id", out JsonElement p) && p.ValueKind != JsonValueKind.Null ? p.GetDiscordIdNullable() : null;
-            ulong? guildId = gidProp.GetDiscordId();
-
-            DiscordChannel ch = new()
-            {
-                Id = id,
-                Name = name,
-                Type = type,
-                Parent_Id = parent,
-                Guild_Id = guildId
-            };
-            evt?.Invoke(this, ch);
+            evt?.Invoke(this, ParseChannel(data, gidProp.GetDiscordId()));
         }
         catch (Exception ex) { Error?.Invoke(this, ex); }
     }
@@ -39,14 +25,10 @@ internal sealed partial class GatewayClient
             if (!data.TryGetProperty("guild_id", out JsonElement gidProp)) return;
             ulong guildId = gidProp.GetDiscordId();
             DiscordUser user = ParseUser(data.GetProperty("user"));
-            ulong[] roles = data.TryGetProperty("roles", out JsonElement r) && r.ValueKind == JsonValueKind.Array
-                ? r.EnumerateArray().Select(static x => x.GetDiscordId()).ToArray()
-                : [];
-            string? nick = data.TryGetProperty("nick", out JsonElement n) && n.ValueKind != JsonValueKind.Null ? n.GetString() : null;
 
             // Create placeholder guild (will be replaced with actual guild in cache)
             DiscordGuild guild = new() { Id = guildId, Name = string.Empty };
-            DiscordMember member = new() { User = user, Guild = guild, Nick = nick, Roles = roles };
+            DiscordMember member = ParseMember(data, user, guild);
             evt?.Invoke(this, new GatewayMemberEvent { GuildId = guildId, Member = member });
         }
         catch (Exception ex) { Error?.Invoke(this, ex); }
@@ -89,16 +71,7 @@ internal sealed partial class GatewayClient
             // Create placeholder guild (will be replaced with actual guild in cache)
             DiscordGuild guild = new() { Id = guildId, Name = string.Empty };
 
-            DiscordRole role = new()
-            {
-                Id = roleData.GetProperty("id").GetDiscordId(),
-                Name = roleData.GetProperty("name").GetString() ?? string.Empty,
-                Guild = guild,
-                Color = roleData.TryGetProperty("color", out JsonElement c) ? c.GetInt32() : 0,
-                Position = roleData.TryGetProperty("position", out JsonElement p) ? p.GetInt32() : 0,
-                Permissions = roleData.TryGetProperty("permissions", out JsonElement perms) ? perms.GetDiscordId() : 0UL
-            };
-            evt?.Invoke(this, new GatewayRoleEvent { GuildId = guildId, Role = role });
+            evt?.Invoke(this, new GatewayRoleEvent { GuildId = guildId, Role = ParseRole(roleData, guild) });
         }
         catch (Exception ex) { Error?.Invoke(this, ex); }
     }
@@ -246,16 +219,6 @@ internal sealed partial class GatewayClient
             evt?.Invoke(this, e);
         }
         catch (Exception ex) { Error?.Invoke(this, ex); }
-    }
-
-    private static DiscordUser ParseUser(JsonElement obj)
-    {
-        return new DiscordUser
-        {
-            Id = obj.GetProperty("id").GetDiscordId(),
-            Username = obj.TryGetProperty("username", out JsonElement un) ? (un.GetString() ?? string.Empty) : string.Empty,
-            Bot = obj.TryGetProperty("bot", out JsonElement botEl) && botEl.ValueKind == JsonValueKind.True ? true : null
-        };
     }
 
     // New event emission methods for missing events
@@ -673,14 +636,8 @@ internal sealed partial class GatewayClient
             {
                 if (memberData.TryGetProperty("user", out JsonElement userData))
                 {
-                    DiscordUser user = ParseUser(userData);
-                    ulong[] roles = memberData.TryGetProperty("roles", out JsonElement r) && r.ValueKind == JsonValueKind.Array
-                        ? r.EnumerateArray().Select(static x => x.GetDiscordId()).ToArray()
-                        : [];
-                    string? nick = memberData.TryGetProperty("nick", out JsonElement n) && n.ValueKind != JsonValueKind.Null ? n.GetString() : null;
-                    ulong memberGuildId = guildId ?? 0;
-                    DiscordGuild guild = new() { Id = memberGuildId, Name = string.Empty };
-                    member = new DiscordMember { User = user, Guild = guild, Nick = nick, Roles = roles };
+                    DiscordGuild guild = new() { Id = guildId ?? 0, Name = string.Empty };
+                    member = ParseMember(memberData, ParseUser(userData), guild);
                 }
             }
 

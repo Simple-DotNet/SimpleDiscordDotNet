@@ -37,18 +37,19 @@ internal sealed class DistributedWorker : IDisposable
         string processId,
         string workerUrl,
         string coordinatorUrl,
-        bool enableGatewayDebug = false)
+        Action<string>? gatewayDebugLog = null)
     {
         _token = token;
         _intents = intents;
         _json = json;
         _logger = logger;
         _processId = processId;
-        _workerUrl = workerUrl;
-        _coordinatorUrl = coordinatorUrl;
-        _client = new ShardHttpClient();
-        _server = new ShardHttpServer(workerUrl, logger);
-        _shardManager = new ShardManager(token, intents, json, logger, enableGatewayDebug);
+        _workerUrl = ShardUrl.ToAdvertised(workerUrl);
+        _coordinatorUrl = ShardUrl.Normalize(coordinatorUrl);
+        string clusterSecret = ClusterAuth.DeriveSecret(token);
+        _client = new ShardHttpClient(clusterSecret);
+        _server = new ShardHttpServer(workerUrl, clusterSecret, logger);
+        _shardManager = new ShardManager(token, intents, json, logger, gatewayDebugLog);
         _succession = new SuccessionManager(logger);
         _metricsTimer = new Timer(SendMetrics, null, Timeout.Infinite, Timeout.Infinite);
 
@@ -113,20 +114,33 @@ internal sealed class DistributedWorker : IDisposable
             }
 
             _totalShards = response.TotalShards;
+            _shardManager.SetMaxConcurrency(response.MaxConcurrency);
             _succession.LoadFrom(response.SuccessionOrder);
 
             _logger.Log(LogLevel.Information, $"Registered with coordinator: {_totalShards} total shards, assigned shards: [{string.Join(", ", response.AssignedShards)}]");
 
             // Start assigned shards
-            foreach (int shardId in response.AssignedShards)
-            {
-                await _shardManager.StartShardAsync(shardId, _totalShards, ct).ConfigureAwait(false);
-            }
+            await StartMissingShardsAsync(response.AssignedShards, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.Log(LogLevel.Error, $"Failed to register with coordinator: {ex.Message}", ex);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Starts the shards that aren't already running. Assignments can repeat a shard this worker
+    /// has, for example when it registers again after the coordinator changes.
+    /// </summary>
+    private async Task StartMissingShardsAsync(IEnumerable<int> shardIds, CancellationToken ct)
+    {
+        foreach (int shardId in shardIds)
+        {
+            if (_shardManager.GetShard(shardId) is null)
+            {
+                await _shardManager.StartShardAsync(shardId, _totalShards, ct).ConfigureAwait(false);
+            }
         }
     }
 
@@ -141,19 +155,15 @@ internal sealed class DistributedWorker : IDisposable
 
         try
         {
-            // ShardAssignment has Shards: List<int>
-            foreach (int shardId in assignment.Shards)
-            {
-                await _shardManager.StartShardAsync(shardId, _totalShards, CancellationToken.None).ConfigureAwait(false);
-                _logger.Log(LogLevel.Information, $"Started new shard assignment: {shardId}/{_totalShards} - Reason: {assignment.Reason}");
-            }
+            await StartMissingShardsAsync(assignment.Shards, CancellationToken.None).ConfigureAwait(false);
+            _logger.Log(LogLevel.Information, $"Applied shard assignment [{string.Join(", ", assignment.Shards)}] of {_totalShards} - Reason: {assignment.Reason}");
 
             await _server.RespondAsync(context, 200, new SuccessResponse { success = true });
         }
         catch (Exception ex)
         {
             _logger.Log(LogLevel.Error, $"Failed to start assigned shards: {ex.Message}", ex);
-            await _server.RespondAsync(context, 500, new HttpErrorResponse { error = ex.Message });
+            await _server.RespondAsync(context, 500, new HttpErrorResponse { error = "Failed to start assigned shards" });
         }
     }
 
@@ -181,7 +191,7 @@ internal sealed class DistributedWorker : IDisposable
         catch (Exception ex)
         {
             _logger.Log(LogLevel.Error, $"Failed to handle migration: {ex.Message}", ex);
-            await _server.RespondAsync(context, 500, new HttpErrorResponse { error = ex.Message });
+            await _server.RespondAsync(context, 500, new HttpErrorResponse { error = "Failed to handle migration" });
         }
     }
 
@@ -213,7 +223,7 @@ internal sealed class DistributedWorker : IDisposable
         _logger.Log(LogLevel.Information, $"Original coordinator resumed at {announcement.ResumedCoordinatorUrl}");
 
         // Update coordinator URL
-        _coordinatorUrl = announcement.ResumedCoordinatorUrl;
+        _coordinatorUrl = ShardUrl.Normalize(announcement.ResumedCoordinatorUrl);
 
         // Re-register with original coordinator
         await _server.RespondAsync(context, 200, new SuccessResponse { success = true });

@@ -5,8 +5,58 @@ namespace SimpleDiscordNet.Gateway;
 
 internal sealed partial class GatewayClient
 {
+    // Discord allows 120 sends per 60 seconds on a connection. Staying under it leaves room for
+    // heartbeats, which skip this limit because a late heartbeat would drop the connection.
+    private const int MaxOutboundEventsPerWindow = 110;
+    private static readonly TimeSpan OutboundWindow = TimeSpan.FromSeconds(60);
+
+    private readonly Queue<long> _recentSends = new();
+
+    private void ResetSendWindow()
+    {
+        lock (_recentSends)
+        {
+            _recentSends.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Waits until another rate-limited event can be sent on this connection.
+    /// </summary>
+    private async Task WaitForSendSlotAsync(CancellationToken ct)
+    {
+        while (true)
+        {
+            long waitMs;
+            lock (_recentSends)
+            {
+                long now = Environment.TickCount64;
+                long windowMs = (long)OutboundWindow.TotalMilliseconds;
+                while (_recentSends.Count > 0 && now - _recentSends.Peek() >= windowMs)
+                {
+                    _recentSends.Dequeue();
+                }
+
+                if (_recentSends.Count < MaxOutboundEventsPerWindow)
+                {
+                    _recentSends.Enqueue(now);
+                    return;
+                }
+
+                waitMs = windowMs - (now - _recentSends.Peek());
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, waitMs)), ct).ConfigureAwait(false);
+        }
+    }
+
     private async Task IdentifyAsync(CancellationToken ct)
     {
+        if (identifyGate is not null && ShardId is { } shard)
+        {
+            await identifyGate(shard, ct).ConfigureAwait(false);
+        }
+
         Identify identify = new()
         {
             d = new IdentifyPayload
@@ -34,11 +84,6 @@ internal sealed partial class GatewayClient
 
     private async Task ResumeAsync(CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(_sessionId))
-        {
-            await IdentifyAsync(ct).ConfigureAwait(false);
-            return;
-        }
         Resume resume = new()
         {
             d = new ResumePayload
@@ -84,6 +129,7 @@ internal sealed partial class GatewayClient
             JsonSerializer.Serialize(writer, request, json);
         }
         LogGatewaySend(8, buffer.WrittenSpan);
+        await WaitForSendSlotAsync(ct).ConfigureAwait(false);
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -123,6 +169,7 @@ internal sealed partial class GatewayClient
             JsonSerializer.Serialize(writer, presence, json);
         }
         LogGatewaySend(3, buffer.WrittenSpan);
+        await WaitForSendSlotAsync(ct).ConfigureAwait(false);
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {

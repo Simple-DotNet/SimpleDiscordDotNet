@@ -26,7 +26,8 @@ internal sealed record WorkerRegistrationResponse(
     [property: JsonPropertyName("peer_urls")] List<string> PeerUrls,
     [property: JsonPropertyName("coordinator_id")] string CoordinatorId,
     [property: JsonPropertyName("is_original_coordinator")] bool IsOriginalCoordinator,
-    [property: JsonPropertyName("timestamp")] long Timestamp
+    [property: JsonPropertyName("timestamp")] long Timestamp,
+    [property: JsonPropertyName("max_concurrency")] int MaxConcurrency
 );
 
 /// <summary>

@@ -7,12 +7,14 @@ namespace SimpleDiscordNet.Commands;
 ///
 /// Supported types:
 /// - string: Discord STRING (supports MinLength/MaxLength/Choices/Autocomplete)
+/// - ulong: Discord STRING, parsed into a snowflake ID (Discord integers can't hold one)
 /// - long/int: Discord INTEGER (supports MinValue/MaxValue/Choices)
 /// - double/float: Discord NUMBER (supports MinValue/MaxValue/Choices)
 /// - bool: Discord BOOLEAN
-/// - User: Discord USER (select a user, resolves from cache)
-/// - Channel: Discord CHANNEL (select a channel, supports ChannelTypes filtering, resolves from cache)
-/// - Role: Discord ROLE (select a role, resolves from cache)
+/// - DiscordUser, DiscordMember: Discord USER (select a user)
+/// - DiscordChannel: Discord CHANNEL (select a channel, supports ChannelTypes filtering)
+/// - DiscordRole: Discord ROLE (select a role)
+/// - Attachment: Discord ATTACHMENT (upload a file)
 ///
 /// Examples:
 /// [CommandOption("name", "Your name", MinLength = 2, MaxLength = 32)]
@@ -25,7 +27,7 @@ namespace SimpleDiscordNet.Commands;
 /// int size,
 ///
 /// [CommandOption("channel", "Select a text channel", ChannelTypes = "0")]
-/// Channel channel,
+/// DiscordChannel channel,
 ///
 /// [CommandOption("query", "Search query", Autocomplete = true)]
 /// string query
@@ -39,22 +41,25 @@ public sealed class CommandOptionAttribute : Attribute
     /// <summary>Human-readable description (1-100 chars).</summary>
     public string Description { get; }
 
+    // Attribute arguments can't be nullable. The source generator only applies the ones you set,
+    // so leaving these out is different from setting them to 0.
+
     /// <summary>Whether this option is required. Automatically inferred from nullable types if not set.</summary>
-    public bool? Required { get; set; }
+    public bool Required { get; set; }
 
     // String constraints
     /// <summary>Minimum length for string options (1-6000).</summary>
-    public int? MinLength { get; set; }
+    public int MinLength { get; set; }
 
     /// <summary>Maximum length for string options (1-6000).</summary>
-    public int? MaxLength { get; set; }
+    public int MaxLength { get; set; }
 
     // Numeric constraints
     /// <summary>Minimum value for integer/number options.</summary>
-    public double? MinValue { get; set; }
+    public double MinValue { get; set; }
 
     /// <summary>Maximum value for integer/number options.</summary>
-    public double? MaxValue { get; set; }
+    public double MaxValue { get; set; }
 
     // Channel constraints
     /// <summary>

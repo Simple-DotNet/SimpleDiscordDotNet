@@ -1,5 +1,6 @@
 using System.Globalization;
 using SimpleDiscordNet.Collections;
+using SimpleDiscordNet.Core;
 using SimpleDiscordNet.Entities;
 
 namespace SimpleDiscordNet.Context;
@@ -18,6 +19,9 @@ public static class DiscordContext
     private static Func<IReadOnlyList<DiscordMember>>? s_membersProvider;
     private static Func<IReadOnlyList<DiscordUser>>? s_usersProvider;
     private static Func<IReadOnlyList<DiscordRole>>? s_rolesProvider;
+
+    // Keyed lookups, so finding one entity doesn't copy the whole cache
+    private static EntityCache? s_cache;
 
     // Live observable collections
     private static ObservableConcurrentDictionary<ulong, DiscordGuild>? s_liveGuilds;
@@ -114,11 +118,11 @@ public static class DiscordContext
 
     /// <summary>Get all channels in a specific guild. Example: var channels = DiscordContext.GetChannelsInGuild(guildId);</summary>
     public static IReadOnlyList<DiscordChannel> GetChannelsInGuild(ulong guildId)
-        => Channels.Where(c => c.Guild?.Id == guildId).ToArray();
+        => GetLiveChannelsForGuild(guildId)?.ToArray() ?? s_emptyChannels;
 
     /// <summary>Get all category channels in a specific guild</summary>
     public static IReadOnlyList<DiscordChannel> GetCategoriesInGuild(ulong guildId)
-        => Channels.Where(c => c.Guild?.Id == guildId && c.IsCategory).ToArray();
+        => GetChannelsInGuild(guildId).Where(c => c.IsCategory).ToArray();
 
     /// <summary>Get all channels within a specific category</summary>
     public static IReadOnlyList<DiscordChannel> GetChannelsInCategory(ulong categoryId)
@@ -126,7 +130,7 @@ public static class DiscordContext
 
     /// <summary>Get all members in a specific guild. Example: var members = DiscordContext.GetMembersInGuild(guildId);</summary>
     public static IReadOnlyList<DiscordMember> GetMembersInGuild(ulong guildId)
-        => Members.Where(m => m.Guild.Id == guildId).ToArray();
+        => GetLiveMembersForGuild(guildId)?.ToArray() ?? s_emptyMembers;
 
     /// <summary>Get all roles in a specific guild. Example: var roles = DiscordContext.GetRolesInGuild(guildId);</summary>
     public static IReadOnlyList<DiscordRole> GetRolesInGuild(ulong guildId)
@@ -140,68 +144,52 @@ public static class DiscordContext
 
     /// <summary>Find a specific guild by ID (string - parses to ulong). Example: var guild = DiscordContext.GetGuild("123456789012345678");</summary>
     public static DiscordGuild? GetGuild(string guildId)
-        => ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) ? Guilds.FirstOrDefault(g => g.Id == id) : null;
+        => ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) ? GetGuild(id) : null;
 
     /// <summary>Find a specific guild by ID (ulong). Example: var guild = DiscordContext.GetGuild(123456789012345678UL);</summary>
     public static DiscordGuild? GetGuild(ulong guildId)
-        => Guilds.FirstOrDefault(g => g.Id == guildId);
+        => s_cache is { } cache && cache.TryGetGuild(guildId, out DiscordGuild guild) ? guild : null;
 
     /// <summary>Find a specific guild by ID (ReadOnlySpan&lt;char&gt; - parses to ulong)</summary>
     public static DiscordGuild? GetGuild(ReadOnlySpan<char> guildId)
-    {
-        if (ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id))
-        {
-            return Guilds.FirstOrDefault(g => g.Id == id);
-        }
-        return null;
-    }
+        => ulong.TryParse(guildId, NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) ? GetGuild(id) : null;
 
-    /// <summary>Find a specific channel by ID (ulong). Example: var channel = DiscordContext.GetChannel(channelId);</summary>
+    /// <summary>Find a specific channel by ID (ulong), including DM channels. Example: var channel = DiscordContext.GetChannel(channelId);</summary>
     public static DiscordChannel? GetChannel(ulong channelId)
-        => Channels.FirstOrDefault(c => c.Id == channelId);
+        => s_cache is { } cache && cache.TryGetChannel(channelId, out DiscordChannel channel) ? channel : null;
 
-    /// <summary>Find a specific member by user ID and guild ID. Example: var member = DiscordContext.GetMember(guildId, userId);</summary>
+    /// <summary>Find a specific member by guild ID and user ID. Example: var member = DiscordContext.GetMember(guildId, userId);</summary>
     public static DiscordMember? GetMember(ulong guildId, ulong userId)
-        => Members.FirstOrDefault(m => m.Guild.Id == guildId && m.User.Id == userId);
+        => s_cache is { } cache && cache.TryGetMember(guildId, userId, out DiscordMember member) ? member : null;
 
     /// <summary>Find a specific role by ID. Example: var role = DiscordContext.GetRole(roleId);</summary>
     public static DiscordRole? GetRole(ulong roleId)
-        => Roles.FirstOrDefault(r => r.Id == roleId);
+        => s_cache is { } cache && cache.TryGetRole(roleId, out DiscordRole role) ? role : null;
 
-    internal static void SetProvider(
-        IDiscordBot bot,
-        DiscordUser? botUser,
-        Func<IReadOnlyList<DiscordGuild>> guilds,
-        Func<IReadOnlyList<DiscordChannel>> channels,
-        Func<IReadOnlyList<DiscordMember>> members,
-        Func<IReadOnlyList<DiscordUser>> users,
-        Func<IReadOnlyList<DiscordRole>> roles,
-        ObservableConcurrentDictionary<ulong, DiscordGuild>? liveGuilds = null,
-        Func<IEnumerable<DiscordChannel>>? liveChannels = null,
-        Func<IEnumerable<DiscordMember>>? liveMembers = null,
-        Func<ulong, ObservableConcurrentList<DiscordChannel>?>? liveChannelsForGuild = null,
-        Func<ulong, ObservableConcurrentList<DiscordMember>?>? liveMembersForGuild = null)
+    internal static void SetProvider(IDiscordBot bot, DiscordUser? botUser, EntityCache cache)
     {
         s_operations = new DiscordContextOperations(bot);
         s_botUser = botUser;
-        s_guildsProvider = guilds;
-        s_channelsProvider = channels;
-        s_membersProvider = members;
-        s_usersProvider = users;
-        s_rolesProvider = roles;
+        s_cache = cache;
+        s_guildsProvider = cache.SnapshotGuilds;
+        s_channelsProvider = cache.SnapshotChannels;
+        s_membersProvider = cache.SnapshotMembers;
+        s_usersProvider = cache.SnapshotUsers;
+        s_rolesProvider = cache.SnapshotRoles;
 
         // Set live collection providers
-        s_liveGuilds = liveGuilds;
-        s_liveChannelsProvider = liveChannels;
-        s_liveMembersProvider = liveMembers;
-        s_liveChannelsForGuildProvider = liveChannelsForGuild;
-        s_liveMembersForGuildProvider = liveMembersForGuild;
+        s_liveGuilds = cache.LiveGuilds;
+        s_liveChannelsProvider = () => cache.LiveChannels;
+        s_liveMembersProvider = () => cache.LiveMembers;
+        s_liveChannelsForGuildProvider = cache.GetLiveChannels;
+        s_liveMembersForGuildProvider = cache.GetLiveMembers;
     }
 
     internal static void ClearProvider()
     {
         s_operations = null;
         s_botUser = null;
+        s_cache = null;
         s_guildsProvider = null;
         s_channelsProvider = null;
         s_membersProvider = null;

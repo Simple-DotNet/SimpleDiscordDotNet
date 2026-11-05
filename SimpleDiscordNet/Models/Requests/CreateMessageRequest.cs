@@ -10,12 +10,14 @@ internal sealed class CreateMessageRequest
     public AttachmentReference[]? attachments { get; set; }
     public AllowedMentionsPayload? allowed_mentions { get; set; }
     public MessageReference? message_reference { get; set; }
-    public string? thread_name { get; set; }
-    public string[]? applied_tags { get; set; }
+    public PollRequest? poll { get; set; }
+    public int? flags { get; set; }
 }
 
 public sealed class MessageReference
 {
+    /// <summary>0 for a reply, 1 for a forward.</summary>
+    public int? type { get; set; }
     public string? message_id { get; set; }
     public string? channel_id { get; set; }
     public string? guild_id { get; set; }

@@ -25,6 +25,9 @@ public sealed record MessageCreateEventRaw
     public string? GuildId { get; init; }
     public required string Content { get; init; }
     public required Author Author { get; init; }
+
+    /// <summary>The full author object from the event, including avatar and display name.</summary>
+    public DiscordUser? AuthorUser { get; init; }
 }
 
 /// <summary>

@@ -12,7 +12,8 @@ namespace SimpleDiscordNet.Sharding;
 /// Handles registration, health checks, metrics, and coordinator protocols.
 /// IMPORTANT: For HTTPS support, SSL certificates must be configured using netsh http add sslcert
 /// or by placing this service behind a TLS-terminating reverse proxy (nginx, Caddy, etc.).
-/// Example: var server = new ShardHttpServer("https://+:8443/"); server.Start();
+/// Every request must carry the cluster secret, including health checks.
+/// Example: var server = new ShardHttpServer("https://+:8443/", clusterSecret); server.Start();
 /// </summary>
 [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "ShardHttpServer uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all sharding models.")]
 [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "ShardHttpServer uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all sharding models.")]
@@ -22,6 +23,7 @@ internal sealed class ShardHttpServer : IDisposable
     private readonly JsonSerializerOptions _json;
     private readonly CancellationTokenSource _cts = new();
     private readonly NativeLogger? _logger;
+    private readonly string _clusterSecret;
     private Task? _listenerTask;
     private volatile bool _disposed;
 
@@ -37,10 +39,11 @@ internal sealed class ShardHttpServer : IDisposable
     private Func<HttpListenerContext, Task>? _handoffHandler;
     private Func<HttpListenerContext, Task>? _resumedAnnouncementHandler;
 
-    public ShardHttpServer(string prefix, NativeLogger? logger = null)
+    public ShardHttpServer(string prefix, string clusterSecret, NativeLogger? logger = null)
     {
         _listener = new HttpListener();
-        _listener.Prefixes.Add(prefix);
+        _listener.Prefixes.Add(ShardUrl.ToListenerPrefix(prefix));
+        _clusterSecret = clusterSecret;
         _logger = logger;
         _json = new JsonSerializerOptions(Serialization.DiscordJsonContext.Default.Options)
         {
@@ -144,6 +147,13 @@ internal sealed class ShardHttpServer : IDisposable
     {
         try
         {
+            if (!ClusterAuth.IsValid(context.Request.Headers[ClusterAuth.HeaderName], _clusterSecret))
+            {
+                _logger?.Log(LogLevel.Warning, $"Rejected unauthenticated cluster request from {context.Request.RemoteEndPoint}");
+                await RespondAsync(context, 401, new HttpErrorResponse { error = "Unauthorized" }).ConfigureAwait(false);
+                return;
+            }
+
             string path = context.Request.Url?.AbsolutePath ?? string.Empty;
             string method = context.Request.HttpMethod;
 
@@ -176,7 +186,7 @@ internal sealed class ShardHttpServer : IDisposable
             _logger?.Log(LogLevel.Error, $"ShardHttpServer request handling error for {context.Request.Url}: {ex.Message}", ex);
             try
             {
-                await RespondAsync(context, 500, new HttpErrorResponse { error = ex.Message }).ConfigureAwait(false);
+                await RespondAsync(context, 500, new HttpErrorResponse { error = "Internal server error" }).ConfigureAwait(false);
             }
             catch { /* Best effort */ }
         }

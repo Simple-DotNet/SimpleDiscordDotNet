@@ -16,3 +16,15 @@ public sealed record DiscordBan
     /// </summary>
     public required DiscordUser user { get; init; }
 }
+
+/// <summary>
+/// The outcome of a bulk ban.
+/// </summary>
+public sealed record BulkBanResult
+{
+    /// <summary>Users who were banned.</summary>
+    public ulong[] Banned_Users { get; init; } = [];
+
+    /// <summary>Users who couldn't be banned.</summary>
+    public ulong[] Failed_Users { get; init; } = [];
+}

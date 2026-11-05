@@ -6,4 +6,6 @@ public sealed record ComponentHandler(
     bool HasContext,
     bool AutoDefer,
     bool DeferEphemeral,
-    Func<InteractionContext, CancellationToken, ValueTask> Invoke);
+    Func<InteractionContext, CancellationToken, ValueTask> Invoke,
+    IReadOnlyList<CommandCheck>? Checks = null,
+    ComponentIdTemplate? Template = null);
