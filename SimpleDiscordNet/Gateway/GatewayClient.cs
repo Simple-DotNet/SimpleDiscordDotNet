@@ -11,23 +11,30 @@ namespace SimpleDiscordNet.Gateway;
 
 [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "GatewayClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all gateway payload types.")]
 [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "GatewayClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all gateway payload types.")]
-internal sealed partial class GatewayClient(string token, DiscordIntents intents, JsonSerializerOptions json, int? shardId = null, int? totalShards = null, bool enableGatewayDebug = false)
+internal sealed partial class GatewayClient(
+    string token,
+    DiscordIntents intents,
+    JsonSerializerOptions json,
+    int? shardId = null,
+    int? totalShards = null,
+    Action<string>? debugLog = null,
+    Uri? gatewayUri = null,
+    Func<int, CancellationToken, Task>? identifyGate = null)
     : IDisposable
 {
     private volatile ClientWebSocket _ws = new();
     private readonly CancellationTokenSource _internalCts = new();
     private Task? _loopTask;
     private long _seq;
-    private string? _sessionId;
+    private volatile string? _sessionId;
+    private volatile string? _resumeGatewayUrl;
     private int _heartbeatIntervalMs;
     private volatile bool _awaitingHeartbeatAck;
     private int _missedHeartbeatAcks;
-    private readonly Random _rand = new();
     private int _reconnectAttempt;
     private volatile bool _sessionExpired;
     private volatile bool _autoReconnect = true;
     private int _isReady;
-    private readonly SemaphoreSlim _reconnectGate = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private CancellationTokenSource? _ctsHeartbeat;
     private readonly object _heartbeatLock = new();
@@ -39,8 +46,12 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
 
     private void LogGatewaySend(int opcode, ReadOnlySpan<byte> payload)
     {
-        if (!enableGatewayDebug) return;
-        Error?.Invoke(this, new InvalidOperationException($"[GW SEND op={opcode}] {Encoding.UTF8.GetString(payload)}"));
+        if (debugLog is null) return;
+
+        // Identify and Resume carry the bot token, so their contents are never logged
+        debugLog(opcode is 2 or 6
+            ? $"[GW SEND op={opcode}] (payload hidden: contains the bot token)"
+            : $"[GW SEND op={opcode}] {Encoding.UTF8.GetString(payload)}");
     }
 
     public event EventHandler? Connected;
@@ -121,31 +132,25 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
 
     public async Task ConnectAsync(CancellationToken cancellationToken)
     {
-        if (_loopTask != null) throw new InvalidOperationException("Already connected. Call DisconnectAsync before reconnecting.");
+        if (_loopTask != null) throw new InvalidOperationException("This gateway client has already been started.");
         await ConnectSocketAsync(cancellationToken).ConfigureAwait(false);
         _loopTask = Task.Run(() => ReceiveLoop(_internalCts.Token), cancellationToken);
     }
 
     public async Task DisconnectAsync()
     {
-        CancellationTokenSource? hbCts = null;
         try
         {
             _autoReconnect = false;
             await _internalCts.CancelAsync();
-            lock (_heartbeatLock)
-            {
-                hbCts = _ctsHeartbeat;
-                _ctsHeartbeat = null;
-            }
-            if (hbCts != null)
-            {
-                try { await hbCts.CancelAsync(); } catch { /* ignored */ }
-            }
+            StopHeartbeat();
+
+            // A clean shutdown closes with 1000, which tells Discord the session is finished
             ClientWebSocket ws = _ws;
             if (ws.State == WebSocketState.Open)
             {
-                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "shutdown", CancellationToken.None).ConfigureAwait(false);
+                using CancellationTokenSource timeout = new(CloseTimeout);
+                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "shutdown", timeout.Token).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -154,830 +159,443 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
         }
         finally
         {
-            try { hbCts?.Dispose(); } catch { /* ignored */ }
-
             Disconnected?.Invoke(this, null);
         }
     }
 
-    private void HandleDispatch(string? eventName, JsonElement data)
+    internal void HandleDispatch(string? eventName, JsonElement data)
     {
-        if (string.Equals(eventName, "READY", StringComparison.Ordinal))
+        try
         {
-            if (data.TryGetProperty("session_id", out JsonElement sid))
-                _sessionId = sid.GetString();
-
-            // Extract bot user information from READY event
-            if (data.TryGetProperty("user", out JsonElement userObj))
+            switch (eventName)
             {
-                DiscordUser botUser = ParseUser(userObj);
-                UserUpdate?.Invoke(this, botUser);
+                case "READY":
+                    HandleReady(data);
+                    break;
+                case "RESUMED":
+                    _sessionExpired = false;
+                    Interlocked.Exchange(ref _reconnectAttempt, 0);
+                    SessionResumed?.Invoke(this, EventArgs.Empty);
+                    break;
+
+                case "MESSAGE_CREATE":
+                    HandleMessageCreate(data);
+                    break;
+
+                // Guild events
+                case "GUILD_CREATE":
+                    HandleGuildCreate(data);
+                    break;
+                case "GUILD_UPDATE":
+                    GuildUpdate?.Invoke(this, ParseGuild(data));
+                    break;
+                case "GUILD_DELETE":
+                    // "unavailable" means an outage, not that the bot left, so keep the cached guild
+                    if (GetBoolOrNull(data, "unavailable") != true)
+                    {
+                        GuildDelete?.Invoke(this, data.GetProperty("id").GetDiscordId());
+                    }
+                    break;
+                case "GUILD_EMOJIS_UPDATE":
+                    GuildEmojisUpdate?.Invoke(this, new GuildEmojisUpdateEvent
+                    {
+                        GuildId = data.GetProperty("guild_id").GetDiscordId(),
+                        Emojis = ParseEmojis(data) ?? []
+                    });
+                    break;
+
+                // Channel events
+                case "CHANNEL_CREATE":
+                    TryEmitChannelEvent(data, ChannelCreate);
+                    break;
+                case "CHANNEL_UPDATE":
+                    TryEmitChannelEvent(data, ChannelUpdate);
+                    break;
+                case "CHANNEL_DELETE":
+                    TryEmitChannelEvent(data, ChannelDelete);
+                    break;
+
+                // Role events
+                case "GUILD_ROLE_CREATE":
+                    TryEmitRoleEvent(data, GuildRoleCreate);
+                    break;
+                case "GUILD_ROLE_UPDATE":
+                    TryEmitRoleEvent(data, GuildRoleUpdate);
+                    break;
+                case "GUILD_ROLE_DELETE":
+                    TryEmitRoleDeleteEvent(data, GuildRoleDelete);
+                    break;
+
+                // Thread events
+                case "THREAD_CREATE":
+                    TryEmitChannelEvent(data, ThreadCreate);
+                    break;
+                case "THREAD_UPDATE":
+                    TryEmitChannelEvent(data, ThreadUpdate);
+                    break;
+                case "THREAD_DELETE":
+                    TryEmitChannelEvent(data, ThreadDelete);
+                    break;
+                case "THREAD_MEMBER_UPDATE":
+                    TryEmitThreadMemberUpdate(data);
+                    break;
+                case "THREAD_MEMBERS_UPDATE":
+                    TryEmitThreadMembersUpdate(data);
+                    break;
+                case "THREAD_LIST_SYNC":
+                    TryEmitThreadListSync(data);
+                    break;
+                case "CHANNEL_PINS_UPDATE":
+                    TryEmitChannelPinsUpdate(data);
+                    break;
+                case "RATE_LIMITED":
+                    TryEmitGatewayRateLimited(data);
+                    break;
+
+                // Member events
+                case "GUILD_MEMBER_ADD":
+                    TryEmitMemberEvent(data, GuildMemberAdd);
+                    break;
+                case "GUILD_MEMBER_UPDATE":
+                    TryEmitMemberEvent(data, GuildMemberUpdate);
+                    break;
+                case "GUILD_MEMBER_REMOVE":
+                    TryEmitMemberRemoveEvent(data, GuildMemberRemove);
+                    break;
+                case "GUILD_MEMBERS_CHUNK":
+                    HandleGuildMembersChunk(data);
+                    break;
+
+                // Ban events
+                case "GUILD_BAN_ADD":
+                    TryEmitBanEvent(data, GuildBanAdd);
+                    break;
+                case "GUILD_BAN_REMOVE":
+                    TryEmitBanEvent(data, GuildBanRemove);
+                    break;
+
+                // Bot user update
+                case "USER_UPDATE":
+                    UserUpdate?.Invoke(this, ParseUser(data));
+                    break;
+
+                // Audit log events
+                case "GUILD_AUDIT_LOG_ENTRY_CREATE":
+                    GuildAuditLogEntryCreate?.Invoke(this, new GatewayAuditLogEvent
+                    {
+                        GuildId = data.GetProperty("guild_id").GetDiscordId(),
+                        Entry = data.Deserialize<DiscordAuditLogEntry>(json) ?? throw new JsonException("Audit log entry was null.")
+                    });
+                    break;
+
+                // Message events
+                case "MESSAGE_UPDATE":
+                    TryEmitMessageUpdateEvent(data, MessageUpdate);
+                    break;
+                case "MESSAGE_DELETE":
+                    TryEmitMessageDeleteEvent(data, MessageDelete);
+                    break;
+                case "MESSAGE_DELETE_BULK":
+                    TryEmitMessageDeleteBulkEvent(data, MessageDeleteBulk);
+                    break;
+
+                // Reaction events
+                case "MESSAGE_REACTION_ADD":
+                    TryEmitReactionEvent(data, MessageReactionAdd);
+                    break;
+                case "MESSAGE_REACTION_REMOVE":
+                    TryEmitReactionEvent(data, MessageReactionRemove);
+                    break;
+                case "MESSAGE_REACTION_REMOVE_ALL":
+                    TryEmitMessageDeleteEvent(data, MessageReactionRemoveAll);
+                    break;
+                case "MESSAGE_REACTION_REMOVE_EMOJI":
+                    TryEmitReactionRemoveEmojiEvent(data, MessageReactionRemoveEmoji);
+                    break;
+
+                // Interactions (slash commands, components, modals)
+                case "INTERACTION_CREATE":
+                    HandleInteractionCreate(data);
+                    break;
+
+                // Voice events
+                case "VOICE_STATE_UPDATE":
+                    TryEmitVoiceStateUpdateEvent(data, VoiceStateUpdate);
+                    break;
+                case "VOICE_SERVER_UPDATE":
+                    TryEmitVoiceServerUpdateEvent(data, VoiceServerUpdate);
+                    break;
+
+                // Presence, typing, webhook and invite events
+                case "PRESENCE_UPDATE":
+                    TryEmitPresenceUpdateEvent(data, PresenceUpdate);
+                    break;
+                case "TYPING_START":
+                    TryEmitTypingStartEvent(data, TypingStart);
+                    break;
+                case "WEBHOOKS_UPDATE":
+                    TryEmitWebhooksUpdateEvent(data, WebhooksUpdate);
+                    break;
+                case "INVITE_CREATE":
+                    TryEmitInviteCreateEvent(data, InviteCreate);
+                    break;
+                case "INVITE_DELETE":
+                    TryEmitInviteDeleteEvent(data, InviteDelete);
+                    break;
+                case "GUILD_INTEGRATIONS_UPDATE":
+                    TryEmitGuildIntegrationsUpdateEvent(data, GuildIntegrationsUpdate);
+                    break;
+
+                // Auto Moderation events
+                case "AUTO_MODERATION_RULE_CREATE":
+                    TryEmitAutoModerationRuleCreatedEvent(data, AutoModerationRuleCreated);
+                    break;
+                case "AUTO_MODERATION_RULE_UPDATE":
+                    TryEmitAutoModerationRuleUpdatedEvent(data, AutoModerationRuleUpdated);
+                    break;
+                case "AUTO_MODERATION_RULE_DELETE":
+                    TryEmitAutoModerationRuleDeletedEvent(data, AutoModerationRuleDeleted);
+                    break;
+                case "AUTO_MODERATION_ACTION_EXECUTION":
+                    TryEmitAutoModerationActionExecutionEvent(data, AutoModerationActionExecution);
+                    break;
+
+                // Stage Instance events
+                case "STAGE_INSTANCE_CREATE":
+                    TryEmitStageInstanceCreatedEvent(data, StageInstanceCreated);
+                    break;
+                case "STAGE_INSTANCE_UPDATE":
+                    TryEmitStageInstanceUpdatedEvent(data, StageInstanceUpdated);
+                    break;
+                case "STAGE_INSTANCE_DELETE":
+                    TryEmitStageInstanceDeletedEvent(data, StageInstanceDeleted);
+                    break;
+
+                // Guild Scheduled Event events
+                case "GUILD_SCHEDULED_EVENT_CREATE":
+                    TryEmitGuildScheduledEventCreatedEvent(data, GuildScheduledEventCreated);
+                    break;
+                case "GUILD_SCHEDULED_EVENT_UPDATE":
+                    TryEmitGuildScheduledEventUpdatedEvent(data, GuildScheduledEventUpdated);
+                    break;
+                case "GUILD_SCHEDULED_EVENT_DELETE":
+                    TryEmitGuildScheduledEventDeletedEvent(data, GuildScheduledEventDeleted);
+                    break;
+                case "GUILD_SCHEDULED_EVENT_USER_ADD":
+                    TryEmitGuildScheduledEventUserAddedEvent(data, GuildScheduledEventUserAdded);
+                    break;
+                case "GUILD_SCHEDULED_EVENT_USER_REMOVE":
+                    TryEmitGuildScheduledEventUserRemovedEvent(data, GuildScheduledEventUserRemoved);
+                    break;
+
+                // Integration events
+                case "INTEGRATION_CREATE":
+                    TryEmitIntegrationCreatedEvent(data, IntegrationCreated);
+                    break;
+                case "INTEGRATION_UPDATE":
+                    TryEmitIntegrationUpdatedEvent(data, IntegrationUpdated);
+                    break;
+                case "INTEGRATION_DELETE":
+                    TryEmitIntegrationDeletedEvent(data, IntegrationDeleted);
+                    break;
+
+                // Guild Join Request events
+                case "GUILD_JOIN_REQUEST_CREATE":
+                    TryEmitGuildJoinRequestCreatedEvent(data, GuildJoinRequestCreated);
+                    break;
+                case "GUILD_JOIN_REQUEST_UPDATE":
+                    TryEmitGuildJoinRequestUpdatedEvent(data, GuildJoinRequestUpdated);
+                    break;
+                case "GUILD_JOIN_REQUEST_DELETE":
+                    TryEmitGuildJoinRequestDeletedEvent(data, GuildJoinRequestDeleted);
+                    break;
+
+                // Poll Vote events
+                case "MESSAGE_POLL_VOTE_ADD":
+                    TryEmitPollVoteAddedEvent(data, PollVoteAdded);
+                    break;
+                case "MESSAGE_POLL_VOTE_REMOVE":
+                    TryEmitPollVoteRemovedEvent(data, PollVoteRemoved);
+                    break;
             }
+        }
+        catch (Exception ex)
+        {
+            // One bad payload must never take the receive loop down
+            Error?.Invoke(this, ex);
+        }
+    }
 
-            _sessionExpired = false;
+    private void HandleReady(JsonElement data)
+    {
+        _sessionId = GetStringOrNull(data, "session_id");
+        _resumeGatewayUrl = GetStringOrNull(data, "resume_gateway_url");
 
-            if (Interlocked.CompareExchange(ref _isReady, 1, 0) == 0)
+        // Extract bot user information from READY event
+        if (data.TryGetProperty("user", out JsonElement userObj))
+        {
+            UserUpdate?.Invoke(this, ParseUser(userObj));
+        }
+
+        _sessionExpired = false;
+        Interlocked.Exchange(ref _reconnectAttempt, 0);
+
+        if (Interlocked.CompareExchange(ref _isReady, 1, 0) == 0)
+        {
+            Connected?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void HandleMessageCreate(JsonElement data)
+    {
+        Author author;
+        DiscordUser? authorUser = null;
+        if (data.TryGetProperty("author", out JsonElement authorObj))
+        {
+            authorUser = ParseUser(authorObj);
+            author = new Author { Id = authorUser.Id, Username = authorUser.Username, Bot = authorUser.Bot };
+        }
+        else
+        {
+            author = new Author { Id = 0, Username = "Unknown" };
+        }
+
+        MessageCreate?.Invoke(this, new MessageCreateEventRaw
+        {
+            Id = data.GetProperty("id").GetString()!,
+            ChannelId = data.GetProperty("channel_id").GetString()!,
+            GuildId = GetStringOrNull(data, "guild_id"),
+            Content = GetStringOrNull(data, "content") ?? string.Empty,
+            Author = author,
+            AuthorUser = authorUser
+        });
+    }
+
+    private void HandleGuildCreate(JsonElement data)
+    {
+        DiscordGuild guild = ParseGuild(data);
+
+        GuildCreate?.Invoke(this, new GuildCreateEvent
+        {
+            Guild = guild,
+            Channels = ParseChannels(data, "channels", guild.Id),
+            Members = ParseMembers(data, guild),
+            Threads = ParseChannels(data, "threads", guild.Id)
+        });
+    }
+
+    private void HandleGuildMembersChunk(JsonElement data)
+    {
+        ulong guildId = data.GetProperty("guild_id").GetDiscordId();
+
+        // Placeholder guild, replaced with the cached guild when the members are stored
+        DiscordGuild guild = new() { Id = guildId, Name = string.Empty };
+
+        GuildMembersChunk?.Invoke(this, new GuildMembersChunkEvent
+        {
+            GuildId = guildId,
+            Members = ParseMembers(data, guild),
+            ChunkIndex = GetIntOrNull(data, "chunk_index") ?? 0,
+            ChunkCount = GetIntOrNull(data, "chunk_count") ?? 1
+        });
+    }
+
+    private void HandleInteractionCreate(JsonElement data)
+    {
+        int type = data.GetProperty("type").GetInt32(); // 2=command, 3=component, 4=autocomplete, 5=modal submit
+        string? guildId = GetStringOrNull(data, "guild_id");
+        ulong parsedGuildId = guildId != null ? ulong.Parse(guildId, CultureInfo.InvariantCulture) : 0;
+
+        Author? author = null;
+        DiscordMember? member = null;
+
+        if (data.TryGetProperty("member", out JsonElement memberObj))
+        {
+            if (memberObj.TryGetProperty("user", out JsonElement memberUser))
             {
-                Connected?.Invoke(this, EventArgs.Empty);
-            }
+                DiscordUser user = ParseUser(memberUser);
+                author = new Author { Id = user.Id, Username = user.Username, Bot = user.Bot };
 
-            return;
-        }
-
-        if (string.Equals(eventName, "RESUMED", StringComparison.Ordinal))
-        {
-            _sessionExpired = false;
-            SessionResumed?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        if (string.Equals(eventName, "MESSAGE_CREATE", StringComparison.Ordinal))
-        {
-            try
-            {
-                string id = data.GetProperty("id").GetString()!;
-                string channelId = data.GetProperty("channel_id").GetString()!;
-                string content = data.GetProperty("content").GetString() ?? string.Empty;
-                Author author;
-                if (data.TryGetProperty("author", out JsonElement authorObj))
-                {
-                    author = new()
-                    {
-                        Id = authorObj.GetProperty("id").GetDiscordId(),
-                        Username = authorObj.GetProperty("username").GetString()!,
-                        Bot = authorObj.TryGetProperty("bot", out JsonElement botEl) && botEl.ValueKind == JsonValueKind.True ? true : null
-                    };
-                }
-                else
-                {
-                    author = new() { Id = 0, Username = "Unknown" };
-                }
-                string? guildId = null;
-                if (data.TryGetProperty("guild_id", out JsonElement gidEl))
-                {
-                    guildId = gidEl.GetString();
-                }
-
-                MessageCreateEventRaw evt = new()
-                {
-                    Id = id,
-                    ChannelId = channelId,
-                    GuildId = guildId,
-                    Content = content,
-                    Author = author
-                };
-                MessageCreate?.Invoke(this, evt);
-            }
-            catch (Exception ex)
-            {
-                Error?.Invoke(this, ex);
+                // Placeholder guild, replaced with the cached guild by DiscordBot
+                member = ParseMember(memberObj, user, new DiscordGuild { Id = parsedGuildId, Name = string.Empty });
             }
         }
-
-        // Guild events
-        else if (string.Equals(eventName, "GUILD_CREATE", StringComparison.Ordinal))
+        else if (data.TryGetProperty("user", out JsonElement userObj))
         {
-            try
-            {
-                ulong guildId = data.GetProperty("id").GetDiscordId();
+            DiscordUser user = ParseUser(userObj);
+            author = new Author { Id = user.Id, Username = user.Username, Bot = user.Bot };
+        }
 
-                // Parse roles
-                // First create guild without roles
-                DiscordGuild g = new()
-                {
-                    Id = guildId,
-                    Name = data.GetProperty("name").GetString() ?? string.Empty
-                };
+        InteractionCreateEvent evt = new()
+        {
+            Id = data.GetProperty("id").GetString()!,
+            Token = data.GetProperty("token").GetString()!,
+            ApplicationId = data.GetProperty("application_id").GetString()!,
+            GuildId = guildId,
+            ChannelId = GetStringOrNull(data, "channel_id"),
+            Author = author,
+            Member = member,
+            Guild = null, // Will be populated by DiscordBot from cache
+            ShardId = ShardId,
+            AppPermissions = GetIdOrNull(data, "app_permissions")
+        };
 
-                // Parse roles with guild reference
-                DiscordRole[]? roles = null;
-                if (data.TryGetProperty("roles", out JsonElement rolesEl) && rolesEl.ValueKind == JsonValueKind.Array)
+        JsonElement interactionData = data.TryGetProperty("data", out JsonElement d) ? d : default;
+        switch (type)
+        {
+            case 2:
+                InteractionCreate?.Invoke(this, evt with
                 {
-                    List<DiscordRole> roleList = new();
-                    foreach (JsonElement roleData in rolesEl.EnumerateArray())
-                    {
-                        DiscordRole role = new()
-                        {
-                            Id = roleData.GetProperty("id").GetDiscordId(),
-                            Name = roleData.GetProperty("name").GetString() ?? string.Empty,
-                            Guild = g,
-                            Color = roleData.TryGetProperty("color", out JsonElement c) ? c.GetInt32() : 0,
-                            Position = roleData.TryGetProperty("position", out JsonElement p) ? p.GetInt32() : 0,
-                            Permissions = roleData.TryGetProperty("permissions", out JsonElement perms) ? perms.GetDiscordId() : 0UL
-                        };
-                        roleList.Add(role);
-                    }
-                    roles = roleList.ToArray();
+                    Type = InteractionType.ApplicationCommand,
+                    Data = ParseCommandData(interactionData, parsedGuildId)
+                });
+                break;
+
+            case 3:
+                string[]? values = null;
+                if (interactionData.TryGetProperty("values", out JsonElement valuesEl) && valuesEl.ValueKind == JsonValueKind.Array)
+                {
+                    values = valuesEl.EnumerateArray().Select(static x => x.GetString()!).ToArray();
                 }
+                string? messageId = data.TryGetProperty("message", out JsonElement messageEl) ? GetStringOrNull(messageEl, "id") : null;
 
-                // Parse emojis
-                DiscordEmoji[]? emojis = null;
-                if (data.TryGetProperty("emojis", out JsonElement emojisEl) && emojisEl.ValueKind == JsonValueKind.Array)
+                InteractionCreate?.Invoke(this, evt with
                 {
-                    List<DiscordEmoji> emojiList = new();
-                    foreach (JsonElement emojiData in emojisEl.EnumerateArray())
+                    Type = InteractionType.MessageComponent,
+                    Component = new MessageComponentData
                     {
-                        DiscordEmoji emoji = new()
-                        {
-                            Id = emojiData.TryGetProperty("id", out JsonElement eid) ? eid.GetString() : null,
-                            Name = emojiData.TryGetProperty("name", out JsonElement en) ? en.GetString() : null,
-                            Animated = emojiData.TryGetProperty("animated", out JsonElement anim) && anim.ValueKind == JsonValueKind.True
-                        };
-                        emojiList.Add(emoji);
+                        CustomId = interactionData.GetProperty("custom_id").GetString()!,
+                        ComponentType = GetIntOrNull(interactionData, "component_type") ?? 0,
+                        Values = values,
+                        MessageId = messageId,
+                        Resolved = ParseResolved(interactionData, parsedGuildId)
                     }
-                    emojis = emojiList.ToArray();
-                }
+                });
+                break;
 
-                // Set roles and emojis on guild
-                g.Roles = roles;
-                g.Emojis = emojis;
-
-                // Parse channels
-                DiscordChannel[]? channels = null;
-                if (data.TryGetProperty("channels", out JsonElement channelsEl) && channelsEl.ValueKind == JsonValueKind.Array)
+            case 4:
+                InteractionCreate?.Invoke(this, evt with
                 {
-                    List<DiscordChannel> channelList = new();
-                    foreach (JsonElement channelData in channelsEl.EnumerateArray())
+                    Type = InteractionType.ApplicationCommandAutocomplete,
+                    Data = ParseCommandData(interactionData, parsedGuildId)
+                });
+                break;
+
+            case 5:
+                List<TextInputValue> inputs = [];
+                CollectModalInputs(interactionData, inputs);
+
+                InteractionCreate?.Invoke(this, evt with
+                {
+                    Type = InteractionType.ModalSubmit,
+                    Modal = new ModalSubmitData
                     {
-                        DiscordChannel channel = new()
-                        {
-                            Id = channelData.GetProperty("id").GetDiscordId(),
-                            Name = channelData.TryGetProperty("name", out JsonElement n) ? (n.GetString() ?? string.Empty) : string.Empty,
-                            Type = channelData.TryGetProperty("type", out JsonElement t) ? t.GetInt32() : 0,
-                            Parent_Id = channelData.TryGetProperty("parent_id", out JsonElement pid) && pid.ValueKind != JsonValueKind.Null ? pid.GetDiscordIdNullable() : null,
-                            Guild_Id = guildId
-                        };
-                        channelList.Add(channel);
+                        CustomId = interactionData.GetProperty("custom_id").GetString()!,
+                        Inputs = inputs,
+                        Resolved = ParseResolved(interactionData, parsedGuildId)
                     }
-                    channels = channelList.ToArray();
-                }
-
-                // Parse members
-                DiscordMember[]? members = null;
-                if (data.TryGetProperty("members", out JsonElement membersEl) && membersEl.ValueKind == JsonValueKind.Array)
-                {
-                    List<DiscordMember> memberList = [];
-                    foreach (JsonElement memberData in membersEl.EnumerateArray())
-                    {
-                        if (memberData.TryGetProperty("user", out JsonElement userData))
-                        {
-                            DiscordUser user = ParseUser(userData);
-                            ulong[] memberRoles = memberData.TryGetProperty("roles", out JsonElement rolesArr) && rolesArr.ValueKind == JsonValueKind.Array
-                                ? rolesArr.EnumerateArray().Select(static x => x.GetDiscordId()).ToArray()
-                                : [];
-                            string? nick = memberData.TryGetProperty("nick", out JsonElement nickEl) && nickEl.ValueKind != JsonValueKind.Null ? nickEl.GetString() : null;
-
-                            DiscordMember member = new() { User = user, Guild = g, Nick = nick, Roles = memberRoles };
-                            memberList.Add(member);
-                        }
-                    }
-                    members = memberList.ToArray();
-                }
-
-                // Parse threads
-                DiscordChannel[]? threads = null;
-                if (data.TryGetProperty("threads", out JsonElement threadsEl) && threadsEl.ValueKind == JsonValueKind.Array)
-                {
-                    List<DiscordChannel> threadList = [];
-                    foreach (JsonElement threadData in threadsEl.EnumerateArray())
-                    {
-                        DiscordChannel thread = new()
-                        {
-                            Id = threadData.GetProperty("id").GetDiscordId(),
-                            Name = threadData.TryGetProperty("name", out JsonElement tn) ? (tn.GetString() ?? string.Empty) : string.Empty,
-                            Type = threadData.TryGetProperty("type", out JsonElement tt) ? tt.GetInt32() : 0,
-                            Parent_Id = threadData.TryGetProperty("parent_id", out JsonElement tpid) && tpid.ValueKind != JsonValueKind.Null ? tpid.GetDiscordIdNullable() : null,
-                            Guild_Id = guildId
-                        };
-                        threadList.Add(thread);
-                    }
-                    threads = threadList.ToArray();
-                }
-
-                GuildCreateEvent evt = new()
-                {
-                    Guild = g,
-                    Channels = channels,
-                    Members = members,
-                    Threads = threads
-                };
-                GuildCreate?.Invoke(this, evt);
-            }
-            catch (Exception ex) { Error?.Invoke(this, ex); }
-        }
-        else if (string.Equals(eventName, "GUILD_UPDATE", StringComparison.Ordinal))
-        {
-            try
-            {
-                DiscordGuild g = new()
-                {
-                    Id = data.GetProperty("id").GetDiscordId(),
-                    Name = data.GetProperty("name").GetString() ?? string.Empty
-                };
-                GuildUpdate?.Invoke(this, g);
-            }
-            catch (Exception ex) { Error?.Invoke(this, ex); }
-        }
-        else if (string.Equals(eventName, "GUILD_DELETE", StringComparison.Ordinal))
-        {
-            try
-            {
-                ulong gid = data.GetProperty("id").GetDiscordId();
-                GuildDelete?.Invoke(this, gid);
-            }
-            catch (Exception ex) { Error?.Invoke(this, ex); }
-        }
-        else if (string.Equals(eventName, "GUILD_EMOJIS_UPDATE", StringComparison.Ordinal))
-        {
-            try
-            {
-                ulong guildId = data.GetProperty("guild_id").GetDiscordId();
-                DiscordEmoji[]? emojis = null;
-                if (data.TryGetProperty("emojis", out JsonElement emojisEl) && emojisEl.ValueKind == JsonValueKind.Array)
-                {
-                    List<DiscordEmoji> emojiList = [];
-                    foreach (JsonElement emojiData in emojisEl.EnumerateArray())
-                    {
-                        DiscordEmoji emoji = new()
-                        {
-                            Id = emojiData.TryGetProperty("id", out JsonElement eid) ? eid.GetString() : null,
-                            Name = emojiData.TryGetProperty("name", out JsonElement en) ? en.GetString() : null,
-                            Animated = emojiData.TryGetProperty("animated", out JsonElement anim) && anim.ValueKind == JsonValueKind.True
-                        };
-                        emojiList.Add(emoji);
-                    }
-                    emojis = emojiList.ToArray();
-                }
-                GuildEmojisUpdate?.Invoke(this, new GuildEmojisUpdateEvent { GuildId = guildId, Emojis = emojis ?? [] });
-            }
-            catch (Exception ex) { Error?.Invoke(this, ex); }
-        }
-
-        // Channel events
-        else if (string.Equals(eventName, "CHANNEL_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitChannelEvent(data, ChannelCreate);
-        }
-        else if (string.Equals(eventName, "CHANNEL_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitChannelEvent(data, ChannelUpdate);
-        }
-        else if (string.Equals(eventName, "CHANNEL_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitChannelEvent(data, ChannelDelete);
-        }
-
-        // Role events
-        else if (string.Equals(eventName, "GUILD_ROLE_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitRoleEvent(data, GuildRoleCreate);
-        }
-        else if (string.Equals(eventName, "GUILD_ROLE_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitRoleEvent(data, GuildRoleUpdate);
-        }
-        else if (string.Equals(eventName, "GUILD_ROLE_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitRoleDeleteEvent(data, GuildRoleDelete);
-        }
-
-        // Thread events
-        else if (string.Equals(eventName, "THREAD_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitChannelEvent(data, ThreadCreate);
-        }
-        else if (string.Equals(eventName, "THREAD_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitChannelEvent(data, ThreadUpdate);
-        }
-        else if (string.Equals(eventName, "THREAD_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitChannelEvent(data, ThreadDelete);
-        }
-
-        // Member events
-        else if (string.Equals(eventName, "GUILD_MEMBER_ADD", StringComparison.Ordinal))
-        {
-            TryEmitMemberEvent(data, GuildMemberAdd);
-        }
-        else if (string.Equals(eventName, "GUILD_MEMBER_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitMemberEvent(data, GuildMemberUpdate);
-        }
-        else if (string.Equals(eventName, "GUILD_MEMBER_REMOVE", StringComparison.Ordinal))
-        {
-            TryEmitMemberRemoveEvent(data, GuildMemberRemove);
-        }
-        else if (string.Equals(eventName, "GUILD_MEMBERS_CHUNK", StringComparison.Ordinal))
-        {
-            try
-            {
-                ulong guildId = data.GetProperty("guild_id").GetDiscordId();
-                int chunkIndex = data.TryGetProperty("chunk_index", out JsonElement ci) ? ci.GetInt32() : 0;
-                int chunkCount = data.TryGetProperty("chunk_count", out JsonElement cc) ? cc.GetInt32() : 1;
-
-                // Create placeholder guild (will be replaced with actual guild in cache)
-                DiscordGuild guild = new() { Id = guildId, Name = string.Empty };
-
-                DiscordMember[]? members = null;
-                if (data.TryGetProperty("members", out JsonElement membersEl) && membersEl.ValueKind == JsonValueKind.Array)
-                {
-                    List<DiscordMember> memberList = [];
-                    foreach (JsonElement memberData in membersEl.EnumerateArray())
-                    {
-                        if (memberData.TryGetProperty("user", out JsonElement userData))
-                        {
-                            DiscordUser user = ParseUser(userData);
-                            ulong[] memberRoles = memberData.TryGetProperty("roles", out JsonElement rolesArr) && rolesArr.ValueKind == JsonValueKind.Array
-                                ? rolesArr.EnumerateArray().Select(static x => x.GetDiscordId()).ToArray()
-                                : [];
-                            string? nick = memberData.TryGetProperty("nick", out JsonElement nickEl) && nickEl.ValueKind != JsonValueKind.Null ? nickEl.GetString() : null;
-
-                            DiscordMember member = new() { User = user, Guild = guild, Nick = nick, Roles = memberRoles };
-                            memberList.Add(member);
-                        }
-                    }
-                    members = memberList.ToArray();
-                }
-
-                GuildMembersChunkEvent evt = new()
-                {
-                    GuildId = guildId,
-                    Members = members ?? [],
-                    ChunkIndex = chunkIndex,
-                    ChunkCount = chunkCount
-                };
-                GuildMembersChunk?.Invoke(this, evt);
-            }
-            catch (Exception ex) { Error?.Invoke(this, ex); }
-        }
-
-        // Ban events
-        else if (string.Equals(eventName, "GUILD_BAN_ADD", StringComparison.Ordinal))
-        {
-            TryEmitBanEvent(data, GuildBanAdd);
-        }
-        else if (string.Equals(eventName, "GUILD_BAN_REMOVE", StringComparison.Ordinal))
-        {
-            TryEmitBanEvent(data, GuildBanRemove);
-        }
-
-        // Bot user update
-        else if (string.Equals(eventName, "USER_UPDATE", StringComparison.Ordinal))
-        {
-            try
-            {
-                DiscordUser u = ParseUser(data);
-                UserUpdate?.Invoke(this, u);
-            }
-            catch (Exception ex) { Error?.Invoke(this, ex); }
-        }
-
-        // Audit log events
-        else if (string.Equals(eventName, "GUILD_AUDIT_LOG_ENTRY_CREATE", StringComparison.Ordinal))
-        {
-            try
-            {
-                ulong guildId = data.GetProperty("guild_id").GetDiscordId();
-                DiscordAuditLogEntry entry = new()
-                {
-                    id = data.GetProperty("id").GetString() ?? "",
-                    action_type = data.GetProperty("action_type").GetInt32(),
-                    target_id = data.TryGetProperty("target_id", out JsonElement tid) && tid.ValueKind != JsonValueKind.Null
-                        ? tid.GetString() : null,
-                    user_id = data.TryGetProperty("user_id", out JsonElement uid) && uid.ValueKind != JsonValueKind.Null
-                        ? uid.GetString() : null,
-                    reason = data.TryGetProperty("reason", out JsonElement r) && r.ValueKind != JsonValueKind.Null
-                        ? r.GetString() : null
-                };
-                GatewayAuditLogEvent evt = new() { GuildId = guildId, Entry = entry };
-                GuildAuditLogEntryCreate?.Invoke(this, evt);
-            }
-            catch (Exception ex) { Error?.Invoke(this, ex); }
-        }
-
-        // Message events
-        else if (string.Equals(eventName, "MESSAGE_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitMessageUpdateEvent(data, MessageUpdate);
-        }
-        else if (string.Equals(eventName, "MESSAGE_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitMessageDeleteEvent(data, MessageDelete);
-        }
-        else if (string.Equals(eventName, "MESSAGE_DELETE_BULK", StringComparison.Ordinal))
-        {
-            TryEmitMessageDeleteBulkEvent(data, MessageDeleteBulk);
-        }
-
-        // Reaction events
-        else if (string.Equals(eventName, "MESSAGE_REACTION_ADD", StringComparison.Ordinal))
-        {
-            TryEmitReactionEvent(data, MessageReactionAdd);
-        }
-        else if (string.Equals(eventName, "MESSAGE_REACTION_REMOVE", StringComparison.Ordinal))
-        {
-            TryEmitReactionEvent(data, MessageReactionRemove);
-        }
-        else if (string.Equals(eventName, "MESSAGE_REACTION_REMOVE_ALL", StringComparison.Ordinal))
-        {
-            TryEmitMessageDeleteEvent(data, MessageReactionRemoveAll);
-        }
-        else if (string.Equals(eventName, "MESSAGE_REACTION_REMOVE_EMOJI", StringComparison.Ordinal))
-        {
-            TryEmitReactionRemoveEmojiEvent(data, MessageReactionRemoveEmoji);
-        }
-
-        // Interactions (slash commands, components, modals)
-        else if (string.Equals(eventName, "INTERACTION_CREATE", StringComparison.Ordinal))
-        {
-            try
-            {
-                int type = data.GetProperty("type").GetInt32(); // 2=command, 3=component, 5=modal submit
-                string id = data.GetProperty("id").GetString()!;
-                string interaction_token = data.GetProperty("token").GetString()!;
-                string appId = data.GetProperty("application_id").GetString()!;
-                string? guildId = data.TryGetProperty("guild_id", out JsonElement gid) && gid.ValueKind != JsonValueKind.Null ? gid.GetString() : null;
-                string? channelId = data.TryGetProperty("channel_id", out JsonElement chIdEl) && chIdEl.ValueKind != JsonValueKind.Null ? chIdEl.GetString() : null;
-
-                Author? author = null;
-                Entities.DiscordMember? member = null;
-
-                if (data.TryGetProperty("member", out JsonElement memberObj))
-                {
-                    // Parse user from member
-                    if (memberObj.TryGetProperty("user", out JsonElement mu))
-                    {
-                        author = new Author { Id = mu.GetProperty("id").GetDiscordId(), Username = mu.TryGetProperty("username", out JsonElement un) ? (un.GetString() ?? string.Empty) : string.Empty };
-
-                        // Parse full member object
-                        DiscordUser user = new()
-                        {
-                            Id = mu.GetProperty("id").GetDiscordId(),
-                            Username = mu.TryGetProperty("username", out JsonElement uname) ? (uname.GetString() ?? string.Empty) : string.Empty,
-                            Discriminator = mu.TryGetProperty("discriminator", out JsonElement disc) && disc.ValueKind == JsonValueKind.String ? ushort.Parse(disc.GetString()!, CultureInfo.InvariantCulture) : (ushort)0
-                        };
-
-                        ulong[] roles = memberObj.TryGetProperty("roles", out JsonElement rolesEl) && rolesEl.ValueKind == JsonValueKind.Array
-                            ? rolesEl.EnumerateArray().Select(r => r.GetDiscordId()).ToArray()
-                            : [];
-
-                        string? nick = memberObj.TryGetProperty("nick", out JsonElement nickEl) && nickEl.ValueKind != JsonValueKind.Null ? nickEl.GetString() : null;
-
-                        ulong? permissions = memberObj.TryGetProperty("permissions", out JsonElement permsEl) && permsEl.ValueKind == JsonValueKind.String
-                            ? ulong.Parse(permsEl.GetString()!, CultureInfo.InvariantCulture) : null;
-
-                        // Create placeholder guild (will be replaced with actual guild in cache)
-                        ulong parsedGuildId = guildId != null ? ulong.Parse(guildId, CultureInfo.InvariantCulture) : 0;
-                        DiscordGuild guild = new() { Id = parsedGuildId, Name = string.Empty };
-
-                        member = new DiscordMember
-                        {
-                            User = user,
-                            Guild = guild,
-                            Nick = nick,
-                            Roles = roles,
-                            Permissions = permissions
-                        };
-                    }
-                }
-                else if (data.TryGetProperty("user", out JsonElement uo))
-                {
-                    author = new Author { Id = uo.GetProperty("id").GetDiscordId(), Username = uo.TryGetProperty("username", out JsonElement un) ? (un.GetString() ?? string.Empty) : string.Empty };
-                }
-
-                // Switch by interaction type
-                if (type == 2)
-                {
-                    // command data
-                    JsonElement d = data.GetProperty("data");
-                    string name = d.GetProperty("name").GetString()!;
-                    string? subGroup = null;
-                    string? sub = null;
-                    List<InteractionOption> options = [];
-
-                    static void AddOptions(List<InteractionOption> target, JsonElement source)
-                    {
-                        foreach (JsonElement o in source.EnumerateArray())
-                        {
-                            string oname = o.GetProperty("name").GetString()!;
-                            string? s = null; long? i = null; bool? b = null;
-                            if (o.TryGetProperty("value", out JsonElement val))
-                            {
-                                switch (val.ValueKind)
-                                {
-                                    case JsonValueKind.String: s = val.GetString(); break;
-                                    case JsonValueKind.Number: if (val.TryGetInt64(out long li)) i = li; break;
-                                    case JsonValueKind.True: b = true; break;
-                                    case JsonValueKind.False: b = false; break;
-                                }
-                            }
-                            target.Add(new InteractionOption { Name = oname, String = s, Integer = i, Boolean = b });
-                        }
-                    }
-
-                    if (d.TryGetProperty("options", out JsonElement opts) && opts.ValueKind == JsonValueKind.Array)
-                    {
-                        if (opts.GetArrayLength() > 0)
-                        {
-                            JsonElement first = opts[0];
-                            if (first.TryGetProperty("type", out JsonElement tProp) && tProp.ValueKind == JsonValueKind.Number)
-                            {
-                                int optionType = tProp.GetInt32();
-                                if (optionType == 2)
-                                {
-                                    // SUB_COMMAND_GROUP case
-                                    subGroup = first.GetProperty("name").GetString();
-                                    if (first.TryGetProperty("options", out JsonElement groupOpts) && groupOpts.ValueKind == JsonValueKind.Array && groupOpts.GetArrayLength() > 0)
-                                    {
-                                        JsonElement groupFirst = groupOpts[0];
-                                        if (groupFirst.TryGetProperty("type", out JsonElement stProp) && stProp.ValueKind == JsonValueKind.Number && stProp.GetInt32() == 1)
-                                        {
-                                            sub = groupFirst.GetProperty("name").GetString();
-                                            if (groupFirst.TryGetProperty("options", out JsonElement subOpts) && subOpts.ValueKind == JsonValueKind.Array)
-                                            {
-                                                AddOptions(options, subOpts);
-                                            }
-                                        }
-                                    }
-                                }
-                                else if (optionType == 1)
-                                {
-                                    // SUB_COMMAND case
-                                    sub = first.GetProperty("name").GetString();
-                                    if (first.TryGetProperty("options", out JsonElement subOpts) && subOpts.ValueKind == JsonValueKind.Array)
-                                    {
-                                        AddOptions(options, subOpts);
-                                    }
-                                }
-                                else
-                                {
-                                    // Flat options (no subcommand)
-                                    AddOptions(options, opts);
-                                }
-                            }
-                        }
-                    }
-
-                    ApplicationCommandData cmd = new() { Name = name, SubcommandGroup = subGroup, Subcommand = sub, Options = options };
-                    InteractionCreateEvent evt = new()
-                    {
-                        Id = id,
-                        Token = interaction_token,
-                        ApplicationId = appId,
-                        Type = InteractionType.ApplicationCommand,
-                        GuildId = guildId,
-                        ChannelId = channelId,
-                        Author = author,
-                        Member = member,
-                        Guild = null, // Will be populated by DiscordBot from cache
-                        Data = cmd
-                    };
-                    InteractionCreate?.Invoke(this, evt);
-                }
-                else if (type == 3)
-                {
-                    // message component
-                    JsonElement d = data.GetProperty("data");
-                    string customId = d.GetProperty("custom_id").GetString()!;
-                    int componentType = d.TryGetProperty("component_type", out JsonElement ctEl) && ctEl.ValueKind == JsonValueKind.Number ? ctEl.GetInt32() : 0;
-                    string[]? values = null;
-                    if (d.TryGetProperty("values", out JsonElement vEl) && vEl.ValueKind == JsonValueKind.Array)
-                    {
-                        values = vEl.EnumerateArray().Select(static x => x.GetString()!).ToArray();
-                    }
-                    string? messageId = null;
-                    if (data.TryGetProperty("message", out JsonElement msgEl) && msgEl.TryGetProperty("id", out JsonElement mid))
-                        messageId = mid.GetString();
-
-                    MessageComponentData comp = new() { CustomId = customId, ComponentType = componentType, Values = values, MessageId = messageId };
-                    InteractionCreateEvent evt = new()
-                    {
-                        Id = id,
-                        Token = interaction_token,
-                        ApplicationId = appId,
-                        Type = InteractionType.MessageComponent,
-                        GuildId = guildId,
-                        ChannelId = channelId,
-                        Author = author,
-                        Member = member,
-                        Guild = null, // Will be populated by DiscordBot from cache
-                        Component = comp
-                    };
-                    InteractionCreate?.Invoke(this, evt);
-                }
-                else if (type == 5)
-                {
-                    // modal submit
-                    JsonElement d = data.GetProperty("data");
-                    string customId = d.GetProperty("custom_id").GetString()!;
-                    List<TextInputValue> inputs = [];
-                    if (d.TryGetProperty("components", out JsonElement rows) && rows.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (JsonElement row in rows.EnumerateArray())
-                        {
-                            if (row.TryGetProperty("components", out JsonElement comps) && comps.ValueKind == JsonValueKind.Array)
-                            {
-                                foreach (JsonElement c in comps.EnumerateArray())
-                                {
-                                    // text input
-                                    string? customIdField = c.TryGetProperty("custom_id", out JsonElement cidEl) ? cidEl.GetString() : null;
-                                    string? val = c.TryGetProperty("value", out JsonElement valEl) ? (valEl.GetString() ?? string.Empty) : null;
-                                    if (!string.IsNullOrEmpty(customIdField))
-                                        inputs.Add(new TextInputValue { CustomId = customIdField!, Value = val });
-                                }
-                            }
-                        }
-                    }
-
-                    ModalSubmitData modal = new() { CustomId = customId, Inputs = inputs };
-                    InteractionCreateEvent evt = new()
-                    {
-                        Id = id,
-                        Token = interaction_token,
-                        ApplicationId = appId,
-                        Type = InteractionType.ModalSubmit,
-                        GuildId = guildId,
-                        ChannelId = channelId,
-                        Author = author,
-                        Member = member,
-                        Guild = null, // Will be populated by DiscordBot from cache
-                        Modal = modal
-                    };
-                    InteractionCreate?.Invoke(this, evt);
-                }
-                else if (type == 4)
-                {
-                    // Autocomplete
-                    JsonElement d = data.GetProperty("data");
-                    string commandName = d.GetProperty("name").GetString()!;
-                    List<InteractionOption> options = [];
-
-                    if (d.TryGetProperty("options", out JsonElement opts) && opts.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (JsonElement o in opts.EnumerateArray())
-                        {
-                            string oname = o.GetProperty("name").GetString()!;
-                            string? value = o.TryGetProperty("value", out JsonElement val) ? (val.GetString() ?? string.Empty) : null;
-                            bool focused = o.TryGetProperty("focused", out JsonElement fEl) && fEl.ValueKind == JsonValueKind.True;
-                            options.Add(new InteractionOption { Name = oname, String = value, Focused = focused });
-                        }
-                    }
-
-                    ApplicationCommandData cmd = new() { Name = commandName, Options = options };
-                    InteractionCreateEvent evt = new()
-                    {
-                        Id = id,
-                        Token = interaction_token,
-                        ApplicationId = appId,
-                        Type = InteractionType.ApplicationCommandAutocomplete,
-                        GuildId = guildId,
-                        ChannelId = channelId,
-                        Author = author,
-                        Member = member,
-                        Guild = null,
-                        Data = cmd
-                    };
-                    InteractionCreate?.Invoke(this, evt);
-                }
-            }
-            catch (Exception ex) { Error?.Invoke(this, ex); }
-        }
-
-        // Voice events
-        else if (string.Equals(eventName, "VOICE_STATE_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitVoiceStateUpdateEvent(data, VoiceStateUpdate);
-        }
-        else if (string.Equals(eventName, "VOICE_SERVER_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitVoiceServerUpdateEvent(data, VoiceServerUpdate);
-        }
-
-        // Presence events
-        else if (string.Equals(eventName, "PRESENCE_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitPresenceUpdateEvent(data, PresenceUpdate);
-        }
-
-        // Typing events
-        else if (string.Equals(eventName, "TYPING_START", StringComparison.Ordinal))
-        {
-            TryEmitTypingStartEvent(data, TypingStart);
-        }
-
-        // Webhook events
-        else if (string.Equals(eventName, "WEBHOOKS_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitWebhooksUpdateEvent(data, WebhooksUpdate);
-        }
-
-        // Invite events
-        else if (string.Equals(eventName, "INVITE_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitInviteCreateEvent(data, InviteCreate);
-        }
-        else if (string.Equals(eventName, "INVITE_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitInviteDeleteEvent(data, InviteDelete);
-        }
-
-        // Guild integrations
-        else if (string.Equals(eventName, "GUILD_INTEGRATIONS_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitGuildIntegrationsUpdateEvent(data, GuildIntegrationsUpdate);
-        }
-
-        // Auto Moderation events
-        else if (string.Equals(eventName, "AUTO_MODERATION_RULE_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitAutoModerationRuleCreatedEvent(data, AutoModerationRuleCreated);
-        }
-        else if (string.Equals(eventName, "AUTO_MODERATION_RULE_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitAutoModerationRuleUpdatedEvent(data, AutoModerationRuleUpdated);
-        }
-        else if (string.Equals(eventName, "AUTO_MODERATION_RULE_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitAutoModerationRuleDeletedEvent(data, AutoModerationRuleDeleted);
-        }
-        else if (string.Equals(eventName, "AUTO_MODERATION_ACTION_EXECUTION", StringComparison.Ordinal))
-        {
-            TryEmitAutoModerationActionExecutionEvent(data, AutoModerationActionExecution);
-        }
-
-        // Stage Instance events
-        else if (string.Equals(eventName, "STAGE_INSTANCE_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitStageInstanceCreatedEvent(data, StageInstanceCreated);
-        }
-        else if (string.Equals(eventName, "STAGE_INSTANCE_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitStageInstanceUpdatedEvent(data, StageInstanceUpdated);
-        }
-        else if (string.Equals(eventName, "STAGE_INSTANCE_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitStageInstanceDeletedEvent(data, StageInstanceDeleted);
-        }
-
-        // Guild Scheduled Event events
-        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitGuildScheduledEventCreatedEvent(data, GuildScheduledEventCreated);
-        }
-        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitGuildScheduledEventUpdatedEvent(data, GuildScheduledEventUpdated);
-        }
-        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitGuildScheduledEventDeletedEvent(data, GuildScheduledEventDeleted);
-        }
-        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_USER_ADD", StringComparison.Ordinal))
-        {
-            TryEmitGuildScheduledEventUserAddedEvent(data, GuildScheduledEventUserAdded);
-        }
-        else if (string.Equals(eventName, "GUILD_SCHEDULED_EVENT_USER_REMOVE", StringComparison.Ordinal))
-        {
-            TryEmitGuildScheduledEventUserRemovedEvent(data, GuildScheduledEventUserRemoved);
-        }
-
-        // Integration events
-        else if (string.Equals(eventName, "INTEGRATION_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitIntegrationCreatedEvent(data, IntegrationCreated);
-        }
-        else if (string.Equals(eventName, "INTEGRATION_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitIntegrationUpdatedEvent(data, IntegrationUpdated);
-        }
-        else if (string.Equals(eventName, "INTEGRATION_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitIntegrationDeletedEvent(data, IntegrationDeleted);
-        }
-
-        // Guild Join Request events
-        else if (string.Equals(eventName, "GUILD_JOIN_REQUEST_CREATE", StringComparison.Ordinal))
-        {
-            TryEmitGuildJoinRequestCreatedEvent(data, GuildJoinRequestCreated);
-        }
-        else if (string.Equals(eventName, "GUILD_JOIN_REQUEST_UPDATE", StringComparison.Ordinal))
-        {
-            TryEmitGuildJoinRequestUpdatedEvent(data, GuildJoinRequestUpdated);
-        }
-        else if (string.Equals(eventName, "GUILD_JOIN_REQUEST_DELETE", StringComparison.Ordinal))
-        {
-            TryEmitGuildJoinRequestDeletedEvent(data, GuildJoinRequestDeleted);
-        }
-
-        // Poll Vote events
-        else if (string.Equals(eventName, "MESSAGE_POLL_VOTE_ADD", StringComparison.Ordinal))
-        {
-            TryEmitPollVoteAddedEvent(data, PollVoteAdded);
-        }
-        else if (string.Equals(eventName, "MESSAGE_POLL_VOTE_REMOVE", StringComparison.Ordinal))
-        {
-            TryEmitPollVoteRemovedEvent(data, PollVoteRemoved);
+                });
+                break;
         }
     }
 
@@ -985,23 +603,16 @@ internal sealed partial class GatewayClient(string token, DiscordIntents intents
     {
         _autoReconnect = false;
         try { _internalCts.Cancel(); } catch { /* Cancellation may throw, safe to ignore during cleanup */ }
-        CancellationTokenSource? hbCts;
-        lock (_heartbeatLock)
-        {
-            hbCts = _ctsHeartbeat;
-            _ctsHeartbeat = null;
-        }
-        try { hbCts?.Cancel(); } catch { /* Cancellation may throw, safe to ignore during cleanup */ }
+        StopHeartbeat();
+        ClientWebSocket ws = _ws;
+        try { ws.Abort(); } catch { /* Abort can throw on a disposed socket, safe to ignore during cleanup */ }
         if (_loopTask != null)
         {
             try { _loopTask.Wait(TimeSpan.FromSeconds(5)); } catch { /* Task may fault or timeout, safe to ignore */ }
             try { _loopTask.Dispose(); } catch { /* Task disposal can throw, safe to ignore */ }
         }
-        ClientWebSocket ws = _ws;
-        try { ws.Dispose(); } catch { /* WebSocket disposal can throw, safe to ignore during cleanup */ }
+        try { _ws.Dispose(); } catch { /* WebSocket disposal can throw, safe to ignore during cleanup */ }
         try { _internalCts.Dispose(); } catch { /* CTS disposal can throw, safe to ignore during cleanup */ }
-        try { _reconnectGate.Dispose(); } catch { /* SemaphoreSlim disposal can throw, safe to ignore during cleanup */ }
         try { _writeLock.Dispose(); } catch { /* SemaphoreSlim disposal can throw, safe to ignore during cleanup */ }
-        try { hbCts?.Dispose(); } catch { /* CTS disposal can throw, safe to ignore during cleanup */ }
     }
 }

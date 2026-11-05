@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
+using SimpleDiscordNet.Core;
 using SimpleDiscordNet.Logging;
 using SimpleDiscordNet.Models;
 using SimpleDiscordNet.Models.Requests;
@@ -28,7 +29,7 @@ internal sealed class RestClient : IDisposable
         _rateLimiter = limiter;
 
         _http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bot", token);
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("SimpleDiscordDotNet");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd(LibraryInfo.UserAgent);
     }
 
     /// <summary>
@@ -47,31 +48,57 @@ internal sealed class RestClient : IDisposable
         }
     }
 
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string route, object? payload, CancellationToken ct)
+    private Task<HttpResponseMessage> SendAsync(HttpMethod method, string route, object? payload, CancellationToken ct, string? auditReason = null)
     {
+        if (payload is null)
+        {
+            return SendCoreAsync(method, route, static () => null, auditReason, ct);
+        }
+
+        // Serialize once so a retry doesn't repeat the work
+        System.Buffers.ArrayBufferWriter<byte> buffer = new();
+        using (Utf8JsonWriter writer = new(buffer))
+        {
+            JsonSerializer.Serialize(writer, payload, _json);
+        }
+
+        return SendCoreAsync(method, route, () =>
+        {
+            ReadOnlyMemoryContent content = new(buffer.WrittenMemory);
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            return content;
+        }, auditReason, ct);
+    }
+
+    private Task<HttpResponseMessage> SendMultipartAsync(HttpMethod method, string route, Func<MultipartFormDataContent> contentFactory, CancellationToken ct)
+        => SendCoreAsync(method, route, contentFactory, null, ct);
+
+    /// <summary>
+    /// Sends a request and retries 429s. Server errors are retried too, except on POST:
+    /// a POST that failed with a 5xx may already have taken effect, and retrying could post a duplicate.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendCoreAsync(HttpMethod method, string route, Func<HttpContent?> contentFactory, string? auditReason, CancellationToken ct)
+    {
+        string loggableRoute = RestRoute.Redact(route);
         int retryCount = 0;
 
         while (true)
         {
             // Acquire rate limit slot
-            using RateLimitHandle handle = await _rateLimiter.AcquireAsync(route, ct).ConfigureAwait(false);
+            using RateLimitHandle handle = await _rateLimiter.AcquireAsync(method, route, ct).ConfigureAwait(false);
 
+            using HttpContent? content = contentFactory();
             using HttpRequestMessage req = new(method, BaseUrl + route);
-            if (payload != null)
+            req.Content = content;
+            if (auditReason is not null)
             {
-                System.Buffers.ArrayBufferWriter<byte> buffer = new();
-                using (Utf8JsonWriter writer = new(buffer))
-                {
-                    JsonSerializer.Serialize(writer, payload, _json);
-                }
-                req.Content = new ReadOnlyMemoryContent(buffer.WrittenMemory);
-                req.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                req.Headers.TryAddWithoutValidation("X-Audit-Log-Reason", Uri.EscapeDataString(auditReason));
             }
 
             HttpResponseMessage res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
 
             // Update rate limit info from response headers
-            await _rateLimiter.UpdateFromResponseAsync(route, res).ConfigureAwait(false);
+            await _rateLimiter.UpdateFromResponseAsync(method, route, res).ConfigureAwait(false);
 
             // Handle 429 (Too Many Requests)
             if ((int)res.StatusCode == 429)
@@ -80,26 +107,16 @@ internal sealed class RestClient : IDisposable
 
                 if (retryCount > MaxRetries)
                 {
-                    _logger.Log(LogLevel.Error, $"Rate limit retry exhausted for {route} after {MaxRetries} attempts");
+                    _logger.Log(LogLevel.Error, $"Rate limit retry exhausted for {loggableRoute} after {MaxRetries} attempts");
                     res.Dispose();
-                    throw new HttpRequestException($"Rate limit retry exhausted for {route} after {MaxRetries} attempts");
+                    throw new HttpRequestException($"Rate limit retry exhausted for {loggableRoute} after {MaxRetries} attempts");
                 }
 
                 // Update bucket with 429 information and wait
-                await _rateLimiter.Handle429Async(route, res, ct).ConfigureAwait(false);
+                await _rateLimiter.Handle429Async(method, route, res, ct).ConfigureAwait(false);
 
-                // Parse retry-after
-                TimeSpan retryAfter = TimeSpan.FromSeconds(1);
-                if (res.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryValues))
-                {
-                    using IEnumerator<string> enumerator = retryValues.GetEnumerator();
-                    if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double retrySeconds))
-                    {
-                        retryAfter = TimeSpan.FromSeconds(retrySeconds);
-                    }
-                }
-
-                _logger.Log(LogLevel.Warning, $"Rate limited on {route}. Retry {retryCount}/{MaxRetries} after {retryAfter.TotalSeconds:F1}s");
+                TimeSpan retryAfter = RateLimitBucket.GetRetryAfter(res);
+                _logger.Log(LogLevel.Warning, $"Rate limited on {loggableRoute}. Retry {retryCount}/{MaxRetries} after {retryAfter.TotalSeconds:F1}s");
 
                 res.Dispose();
                 await Task.Delay(retryAfter, ct).ConfigureAwait(false);
@@ -109,86 +126,18 @@ internal sealed class RestClient : IDisposable
             }
 
             // Handle 5xx server errors with exponential backoff
-            if ((int)res.StatusCode >= 500 && (int)res.StatusCode < 600)
+            if ((int)res.StatusCode >= 500 && (int)res.StatusCode < 600 && method != HttpMethod.Post)
             {
                 retryCount++;
 
                 if (retryCount > MaxRetries)
                 {
-                    _logger.Log(LogLevel.Error, $"Server error retry exhausted for {route} after {MaxRetries} attempts");
+                    _logger.Log(LogLevel.Error, $"Server error retry exhausted for {loggableRoute} after {MaxRetries} attempts");
                     return res;
                 }
 
                 TimeSpan backoff = TimeSpan.FromSeconds(Math.Pow(2, retryCount - 1)); // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-                _logger.Log(LogLevel.Warning, $"Server error {res.StatusCode} on {route}. Retry {retryCount}/{MaxRetries} after {backoff.TotalSeconds}s");
-
-                res.Dispose();
-                await Task.Delay(backoff, ct).ConfigureAwait(false);
-                continue;
-            }
-
-            return res;
-        }
-    }
-
-    private async Task<HttpResponseMessage> SendMultipartAsync(HttpMethod method, string route, Func<MultipartFormDataContent> contentFactory, CancellationToken ct)
-    {
-        int retryCount = 0;
-
-        while (true)
-        {
-            using RateLimitHandle handle = await _rateLimiter.AcquireAsync(route, ct).ConfigureAwait(false);
-
-            using MultipartFormDataContent content = contentFactory();
-            using HttpRequestMessage req = new(method, BaseUrl + route);
-            req.Content = content;
-
-            HttpResponseMessage res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-
-            await _rateLimiter.UpdateFromResponseAsync(route, res).ConfigureAwait(false);
-
-            if ((int)res.StatusCode == 429)
-            {
-                retryCount++;
-
-                if (retryCount > MaxRetries)
-                {
-                    _logger.Log(LogLevel.Error, $"Rate limit retry exhausted for {route} after {MaxRetries} attempts");
-                    res.Dispose();
-                    throw new HttpRequestException($"Rate limit retry exhausted for {route} after {MaxRetries} attempts");
-                }
-
-                await _rateLimiter.Handle429Async(route, res, ct).ConfigureAwait(false);
-
-                TimeSpan retryAfter = TimeSpan.FromSeconds(1);
-                if (res.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryValues))
-                {
-                    using IEnumerator<string> enumerator = retryValues.GetEnumerator();
-                    if (enumerator.MoveNext() && double.TryParse(enumerator.Current.AsSpan(), NumberStyles.Float, CultureInfo.InvariantCulture, out double retrySeconds))
-                    {
-                        retryAfter = TimeSpan.FromSeconds(retrySeconds);
-                    }
-                }
-
-                _logger.Log(LogLevel.Warning, $"Rate limited on {route}. Multipart retry {retryCount}/{MaxRetries} after {retryAfter.TotalSeconds:F1}s");
-
-                res.Dispose();
-                await Task.Delay(retryAfter, ct).ConfigureAwait(false);
-                continue;
-            }
-
-            if ((int)res.StatusCode >= 500 && (int)res.StatusCode < 600)
-            {
-                retryCount++;
-
-                if (retryCount > MaxRetries)
-                {
-                    _logger.Log(LogLevel.Error, $"Server error retry exhausted for {route} after {MaxRetries} attempts");
-                    return res;
-                }
-
-                TimeSpan backoff = TimeSpan.FromSeconds(Math.Pow(2, retryCount - 1));
-                _logger.Log(LogLevel.Warning, $"Server error {res.StatusCode} on {route}. Multipart retry {retryCount}/{MaxRetries} after {backoff.TotalSeconds}s");
+                _logger.Log(LogLevel.Warning, $"Server error {res.StatusCode} on {loggableRoute}. Retry {retryCount}/{MaxRetries} after {backoff.TotalSeconds}s");
 
                 res.Dispose();
                 await Task.Delay(backoff, ct).ConfigureAwait(false);
@@ -205,7 +154,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on GET {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on GET {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
         await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -218,7 +167,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PUT {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PUT {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
     }
@@ -229,18 +178,42 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
     }
 
-    public async Task<T?> PostAsync<T>(string route, object payload, CancellationToken ct)
+    public async Task<T?> PatchAsync<T>(string route, object payload, CancellationToken ct)
     {
-        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, route, payload, ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, route, payload, ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH {RestRoute.Redact(route)}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+        await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<T>(s, _json, ct).ConfigureAwait(false);
+    }
+
+    public async Task DeleteAsync(string route, CancellationToken ct)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, route, null, ct).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE {RestRoute.Redact(route)}. Body: {body}");
+        }
+        res.EnsureSuccessStatusCode();
+    }
+
+    public async Task<T?> PostAsync<T>(string route, object payload, CancellationToken ct, string? reason = null)
+    {
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Post, route, payload, ct, reason).ConfigureAwait(false);
+        if (!res.IsSuccessStatusCode)
+        {
+            string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
         await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -253,7 +226,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
     }
@@ -265,7 +238,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
     }
@@ -277,7 +250,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
         await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -291,7 +264,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on POST (multipart) {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
         await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -305,7 +278,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH (multipart) {route}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH (multipart) {RestRoute.Redact(route)}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
         await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -633,11 +606,11 @@ internal sealed class RestClient : IDisposable
     /// </summary>
     public async Task PinMessageAsync(string channelId, string messageId, CancellationToken ct)
     {
-        using HttpResponseMessage res = await SendAsync(HttpMethod.Put, $"/channels/{channelId}/pins/{messageId}", null, ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Put, $"/channels/{channelId}/messages/pins/{messageId}", null, ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PUT /channels/{channelId}/pins/{messageId}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PUT /channels/{channelId}/messages/pins/{messageId}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
     }
@@ -647,20 +620,35 @@ internal sealed class RestClient : IDisposable
     /// </summary>
     public async Task UnpinMessageAsync(string channelId, string messageId, CancellationToken ct)
     {
-        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/channels/{channelId}/pins/{messageId}", null, ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/channels/{channelId}/messages/pins/{messageId}", null, ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /channels/{channelId}/pins/{messageId}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /channels/{channelId}/messages/pins/{messageId}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
     }
 
     /// <summary>
-    /// Get all pinned messages in a channel.
+    /// Gets every pinned message in a channel, following Discord's pages.
     /// </summary>
-    public Task<T?> GetPinnedMessagesAsync<T>(string channelId, CancellationToken ct)
-        => GetAsync<T>($"/channels/{channelId}/pins", ct);
+    public async Task<DiscordMessage[]> GetPinnedMessagesAsync(string channelId, CancellationToken ct)
+    {
+        List<DiscordMessage> all = [];
+        string? before = null;
+        while (true)
+        {
+            string route = $"/channels/{channelId}/messages/pins?limit=50" + (before is null ? string.Empty : $"&before={Uri.EscapeDataString(before)}");
+            ChannelPinsResponse? page = await GetAsync<ChannelPinsResponse>(route, ct).ConfigureAwait(false);
+            if (page is null || page.items.Length == 0) return all.ToArray();
+
+            foreach (ChannelPinEntry entry in page.items)
+                all.Add(entry.message);
+
+            if (!page.has_more) return all.ToArray();
+            before = page.items[^1].pinned_at;
+        }
+    }
 
     // ---- User & Member retrieval ----
 
@@ -699,9 +687,9 @@ internal sealed class RestClient : IDisposable
     /// <summary>
     /// Kick a member from a guild (remove guild member).
     /// </summary>
-    public async Task KickMemberAsync(string guildId, string userId, CancellationToken ct)
+    public async Task KickMemberAsync(string guildId, string userId, CancellationToken ct, string? reason = null)
     {
-        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/guilds/{guildId}/members/{userId}", null, ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/guilds/{guildId}/members/{userId}", null, ct, reason).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
@@ -713,9 +701,9 @@ internal sealed class RestClient : IDisposable
     /// <summary>
     /// Modify a guild member (nick, roles, mute, deaf, timeout, etc).
     /// </summary>
-    public async Task<T?> PatchGuildMemberAsync<T>(string guildId, string userId, object payload, CancellationToken ct)
+    public async Task<T?> PatchGuildMemberAsync<T>(string guildId, string userId, object payload, CancellationToken ct, string? reason = null)
     {
-        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/guilds/{guildId}/members/{userId}", payload, ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Patch, $"/guilds/{guildId}/members/{userId}", payload, ct, reason).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
@@ -729,10 +717,10 @@ internal sealed class RestClient : IDisposable
     /// <summary>
     /// Ban a member from a guild.
     /// </summary>
-    public async Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays, CancellationToken ct)
+    public async Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays, CancellationToken ct, string? reason = null)
     {
         BanMemberRequest payload = new() { delete_message_days = deleteMessageDays };
-        using HttpResponseMessage res = await SendAsync(HttpMethod.Put, $"/guilds/{guildId}/bans/{userId}", payload, ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Put, $"/guilds/{guildId}/bans/{userId}", payload, ct, reason).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
@@ -756,9 +744,9 @@ internal sealed class RestClient : IDisposable
     /// <summary>
     /// Unban a user from a guild.
     /// </summary>
-    public async Task UnbanMemberAsync(string guildId, string userId, CancellationToken ct)
+    public async Task UnbanMemberAsync(string guildId, string userId, CancellationToken ct, string? reason = null)
     {
-        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/guilds/{guildId}/bans/{userId}", null, ct).ConfigureAwait(false);
+        using HttpResponseMessage res = await SendAsync(HttpMethod.Delete, $"/guilds/{guildId}/bans/{userId}", null, ct, reason).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
@@ -1077,7 +1065,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /webhooks/{webhookId}/{webhookToken}/messages/{messageId}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on PATCH /webhooks/{webhookId}/***/messages/{messageId}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
         await using Stream s = await res.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -1090,7 +1078,7 @@ internal sealed class RestClient : IDisposable
         if (!res.IsSuccessStatusCode)
         {
             string? body = await TryReadErrorBodyAsync(res, ct).ConfigureAwait(false);
-            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /webhooks/{webhookId}/{webhookToken}/messages/{messageId}. Body: {body}");
+            _logger.Log(LogLevel.Error, $"HTTP {((int)res.StatusCode)} on DELETE /webhooks/{webhookId}/***/messages/{messageId}. Body: {body}");
         }
         res.EnsureSuccessStatusCode();
     }
@@ -1257,12 +1245,12 @@ internal sealed class RestClient : IDisposable
         res.EnsureSuccessStatusCode();
     }
 
-    public IReadOnlyList<RateLimitBucketInfo> GetRateLimitStats() => _rateLimiter.GetAllBucketInfo();
+    public IReadOnlyList<RateLimitBucketInfo> GetRateLimitStats() => _rateLimiter.GetAllBuckets();
 
     /// <summary>
     /// Get rate limit statistics for a specific bucket.
     /// </summary>
-    public RateLimitBucketInfo? GetBucketStats(string bucketId) => _rateLimiter.GetBucketInfo(bucketId);
+    public RateLimitBucketInfo? GetBucketStats(string bucketId) => _rateLimiter.GetBucket(bucketId);
 
     public void Dispose()
     {

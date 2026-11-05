@@ -10,4 +10,5 @@ internal sealed class WebhookMessageRequest
     public IComponent[]? components { get; set; }
     public AttachmentReference[]? attachments { get; set; }
     public AllowedMentionsPayload? allowed_mentions { get; set; }
+    public PollRequest? poll { get; set; }
 }

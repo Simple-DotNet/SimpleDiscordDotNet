@@ -163,6 +163,9 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
                 }
             }
 
+            if (!await CommandChecks.PassAsync(handler.Checks, ctx, ct).ConfigureAwait(false))
+                return;
+
             if (handler.AutoDefer)
             {
                 await ctx.DeferAsync(ephemeral: handler.DeferEphemeral, ct).ConfigureAwait(false);
@@ -178,7 +181,7 @@ internal sealed class SlashCommandService(NativeLogger logger, CommandPermission
             logger.Log(LogLevel.Error, $"Error executing slash command '{path}': {ex.Message}", ex);
 
             // Send error response to Discord so user knows something went wrong
-            if (ctx is not null)
+            if (ctx is not null && !await CommandErrorHandlers.TryHandleAsync(ctx, ex, logger).ConfigureAwait(false))
             {
                 try
                 {

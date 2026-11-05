@@ -26,6 +26,7 @@ internal sealed class ShardCoordinator : IDisposable
     private readonly Timer _balancingTimer;
     private readonly object _assignmentLock = new();
     private volatile int _totalShards;
+    private volatile int _maxConcurrency = 1;
     private volatile bool _disposed;
     private volatile bool _timersDisposed;
     private readonly string _coordinatorId;
@@ -33,12 +34,13 @@ internal sealed class ShardCoordinator : IDisposable
     public ShardCoordinator(string token, string listenUrl, NativeLogger logger, bool isOriginalCoordinator = true)
     {
         _token = token;
-        _listenUrl = listenUrl;
+        _listenUrl = ShardUrl.ToAdvertised(listenUrl);
         _logger = logger;
         _isOriginalCoordinator = isOriginalCoordinator;
         _coordinatorId = $"coordinator-{Guid.NewGuid():N}";
-        _server = new ShardHttpServer(listenUrl, logger);
-        _client = new ShardHttpClient();
+        string clusterSecret = ClusterAuth.DeriveSecret(token);
+        _server = new ShardHttpServer(listenUrl, clusterSecret, logger);
+        _client = new ShardHttpClient(clusterSecret);
         _succession = new SuccessionManager(logger);
         _healthMonitor = new HealthMonitor(_peers, OnPeerFailed, logger);
         _loadBalancer = new LoadBalancer(_peers, OnMigrationNeeded, logger);
@@ -74,8 +76,8 @@ internal sealed class ShardCoordinator : IDisposable
         if (_disposed) throw new ObjectDisposedException(nameof(ShardCoordinator));
 
         // Auto-detect shard count from Discord
-        _totalShards = await AutoDetectShardCountAsync(ct).ConfigureAwait(false);
-        _logger.Log(LogLevel.Information, $"Coordinator detected {_totalShards} total shards from Discord");
+        (_totalShards, _maxConcurrency) = await AutoDetectGatewayLimitsAsync(ct).ConfigureAwait(false);
+        _logger.Log(LogLevel.Information, $"Coordinator detected {_totalShards} total shards from Discord (max_concurrency {_maxConcurrency})");
 
         _server.Start();
         _healthMonitor.Start();
@@ -84,27 +86,37 @@ internal sealed class ShardCoordinator : IDisposable
         _logger.Log(LogLevel.Information, $"Coordinator started on {_listenUrl} (Original: {_isOriginalCoordinator})");
     }
 
-    private async Task<int> AutoDetectShardCountAsync(CancellationToken ct)
+    private async Task<(int Shards, int MaxConcurrency)> AutoDetectGatewayLimitsAsync(CancellationToken ct)
     {
         try
         {
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Add("Authorization", $"Bot {_token}");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(Core.LibraryInfo.UserAgent);
 
             var response = await http.GetAsync("https://discord.com/api/v10/gateway/bot", ct).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(json);
-            var shards = doc.RootElement.GetProperty("shards").GetInt32();
-
-            return shards;
+            return ParseGatewayLimits(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
         }
         catch (Exception ex)
         {
             _logger.Log(LogLevel.Error, $"Failed to auto-detect shard count: {ex.Message}. Defaulting to 1.", ex);
-            return 1;
+            return (1, 1);
         }
+    }
+
+    internal static (int Shards, int MaxConcurrency) ParseGatewayLimits(string gatewayBotJson)
+    {
+        using JsonDocument doc = JsonDocument.Parse(gatewayBotJson);
+        JsonElement root = doc.RootElement;
+
+        int maxConcurrency = root.TryGetProperty("session_start_limit", out JsonElement limit) &&
+                             limit.TryGetProperty("max_concurrency", out JsonElement concurrency)
+            ? concurrency.GetInt32()
+            : 1;
+
+        return (root.GetProperty("shards").GetInt32(), maxConcurrency);
     }
 
     private async Task HandleRegisterAsync(System.Net.HttpListenerContext context)
@@ -116,16 +128,34 @@ internal sealed class ShardCoordinator : IDisposable
             return;
         }
 
-        PeerNode peer = new(request.ProcessId, request.ListenUrl)
+        string workerUrl = ShardUrl.Normalize(request.ListenUrl);
+        PeerNode peer = new(request.ProcessId, workerUrl)
         {
             MaxShards = request.MaxShards
         };
-        _peers.AddOrUpdate(request.ProcessId, peer, (_, old) => peer);
 
-        int position = _succession.AddWorker(request.ProcessId, request.ListenUrl, false);
+        List<ShardMigrationRequest> migrations;
+        lock (_assignmentLock)
+        {
+            // A worker registering again keeps the shards it is already running
+            if (_peers.TryGetValue(request.ProcessId, out PeerNode? existing))
+            {
+                lock (peer.ShardsLock)
+                    peer.AssignedShards.AddRange(existing.GetShardsSnapshot());
+            }
+            _peers[request.ProcessId] = peer;
 
-        // Auto-assign shards
-        AssignShardsToWorker(peer);
+            // Auto-assign shards
+            migrations = ShardAssigner.AssignNewWorker(_peers.Values.ToArray(), peer, _totalShards);
+        }
+
+        int position = _succession.AddWorker(request.ProcessId, workerUrl, false);
+
+        // Stop moved shards on their old workers before the new worker starts them
+        foreach (ShardMigrationRequest migration in migrations)
+        {
+            await NotifyMigrationSourceAsync(migration);
+        }
 
         WorkerRegistrationResponse response = new(
             AssignedShards: GetAssignedShardsSafe(peer),
@@ -135,7 +165,8 @@ internal sealed class ShardCoordinator : IDisposable
             PeerUrls: _peers.Values.Select(p => p.ToState().Url).ToList(),
             CoordinatorId: _coordinatorId,
             IsOriginalCoordinator: _isOriginalCoordinator,
-            Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            MaxConcurrency: _maxConcurrency
         );
 
         await _server.RespondAsync(context, 200, response);
@@ -143,58 +174,21 @@ internal sealed class ShardCoordinator : IDisposable
         // Broadcast succession update to all peers
         await BroadcastSuccessionUpdateAsync();
 
-        _logger.Log(LogLevel.Information, $"Worker {request.ProcessId} registered with shards: [{string.Join(", ", peer.AssignedShards)}]");
+        _logger.Log(LogLevel.Information, $"Worker {request.ProcessId} registered with shards: [{string.Join(", ", peer.GetShardsSnapshot())}]");
     }
 
-    private void AssignShardsToWorker(PeerNode peer)
+    private async Task NotifyMigrationSourceAsync(ShardMigrationRequest migration)
     {
-        lock (_assignmentLock)
+        try
         {
-            // Find unassigned shards
-            HashSet<int> assignedShards = new();
-            foreach (var p in _peers.Values)
+            if (_peers.TryGetValue(migration.FromNode, out PeerNode? source))
             {
-                lock (p.ShardsLock)
-                {
-                    foreach (int s in p.AssignedShards)
-                        assignedShards.Add(s);
-                }
+                await _client.PostAsync($"{source.Url}/migrate", migration).ConfigureAwait(false);
             }
-            int[] unassigned = Enumerable.Range(0, _totalShards).Where(s => !assignedShards.Contains(s)).ToArray();
-
-            if (unassigned.Length > 0)
-            {
-                // Assign next available shard
-                lock (peer.ShardsLock)
-                    peer.AssignedShards.Add(unassigned[0]);
-            }
-            else
-            {
-                // All shards assigned, find worker with most shards and take one
-                PeerNode? mostLoaded = null;
-                int mostLoadedCount = -1;
-                foreach (var p in _peers.Values)
-                {
-                    if (p.ProcessId == peer.ProcessId) continue;
-                    int count;
-                    lock (p.ShardsLock) { count = p.AssignedShards.Count; }
-                    if (count > 0 && count > mostLoadedCount)
-                    {
-                        mostLoadedCount = count;
-                        mostLoaded = p;
-                    }
-                }
-
-                if (mostLoaded == null) return;
-                int shardToMove;
-                lock (mostLoaded.ShardsLock)
-                {
-                    shardToMove = mostLoaded.AssignedShards[0];
-                    mostLoaded.AssignedShards.Remove(shardToMove);
-                }
-                lock (peer.ShardsLock)
-                    peer.AssignedShards.Add(shardToMove);
-            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(LogLevel.Error, $"Failed to stop shard {migration.ShardId} on {migration.FromNode}: {ex.Message}", ex);
         }
     }
 
@@ -420,26 +414,34 @@ internal sealed class ShardCoordinator : IDisposable
         if (!_peers.TryRemove(peer.ProcessId, out _)) return;
         _succession.RemoveWorker(peer.ProcessId);
 
+        Dictionary<PeerNode, List<int>> reassigned;
         lock (_assignmentLock)
         {
-            // Reassign orphaned shards
-            int[] orphanedShards;
-            lock (peer.ShardsLock)
-                orphanedShards = peer.AssignedShards.ToArray();
-            if (orphanedShards.Length <= 0) return;
-            PeerNode[] healthyWorkers = _peers.Values.Where(p => p.IsHealthy).ToArray();
-            if (healthyWorkers.Length <= 0) return;
-            int targetIndex = 0;
-            foreach (int shardId in orphanedShards)
-            {
-                PeerNode target = healthyWorkers[targetIndex % healthyWorkers.Length];
-                lock (target.ShardsLock)
-                    target.AssignedShards.Add(shardId);
-                targetIndex++;
+            // Reassign orphaned shards. Any left over stay unassigned until the next worker registers.
+            reassigned = ShardAssigner.ReassignShards(peer.GetShardsSnapshot(), _peers.Values.Where(p => p.IsHealthy).ToArray());
+        }
 
-                PeerNodeState targetState = target.ToState();
-                _logger.Log(LogLevel.Information, $"Reassigned orphaned shard {shardId} to {targetState.ProcessId}");
-            }
+        foreach ((PeerNode target, List<int> shards) in reassigned)
+        {
+            _logger.Log(LogLevel.Information, $"Reassigned orphaned shards [{string.Join(", ", shards)}] to {target.ProcessId}");
+            _ = SendAssignmentAsync(target, shards, $"Failover from {peer.ProcessId}");
+        }
+    }
+
+    private async Task SendAssignmentAsync(PeerNode target, List<int> shards, string reason)
+    {
+        try
+        {
+            ShardAssignment assignment = new(
+                Shards: shards,
+                Reason: reason,
+                Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            );
+            await _client.PostAsync($"{target.Url}/assignment", assignment).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.Log(LogLevel.Error, $"Failed to send shard assignment to {target.ProcessId}: {ex.Message}", ex);
         }
     }
 

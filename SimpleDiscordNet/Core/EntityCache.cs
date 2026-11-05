@@ -17,8 +17,9 @@ internal sealed class EntityCache
     private readonly ObservableConcurrentDictionary<ulong, DiscordGuild> _guilds;
     private readonly ConcurrentDictionary<ulong, ObservableConcurrentList<DiscordChannel>> _channelsByGuild = new();
     private readonly ConcurrentDictionary<ulong, ObservableConcurrentList<DiscordMember>> _membersByGuild = new();
+    private readonly ConcurrentDictionary<ulong, ConcurrentDictionary<ulong, DiscordMember>> _memberIndexByGuild = new();
     private readonly ConcurrentDictionary<ulong, DiscordUser> _users = new();
-    private readonly ConcurrentQueue<ulong> _userAccessOrder = new();
+    private readonly ConcurrentQueue<ulong> _userInsertOrder = new();
     private readonly ConcurrentDictionary<ulong, DiscordChannel> _channelsById = new();
     private readonly ConcurrentDictionary<ulong, DiscordRole> _rolesById = new();
     private SynchronizationContext? _synchronizationContext;
@@ -97,144 +98,69 @@ internal sealed class EntityCache
         return _membersByGuild.TryGetValue(guildId, out var list) ? list : null;
     }
 
-    public void ReplaceGuilds(IEnumerable<DiscordGuild> guilds)
-    {
-        _guilds.ReplaceAll(guilds.Select(g => new KeyValuePair<ulong, DiscordGuild>(g.Id, g)));
-    }
-
     public void SetChannels(ulong guildId, IEnumerable<DiscordChannel> channels)
     {
-        if (!_guilds.TryGetValue(guildId, out DiscordGuild? guild))
-        {
-            // Guild not in cache yet - store channels as-is (Guild will be set later via UpsertChannel)
-            _channelsByGuild.AddOrUpdate(guildId,
-                _ =>
-                {
-                    var list = new ObservableConcurrentList<DiscordChannel>(_synchronizationContext);
-                    list.AddRange(channels);
-                    foreach (DiscordChannel channel in channels)
-                    {
-                        _channelsById[channel.Id] = channel;
-                    }
-                    return list;
-                },
-                (_, existing) =>
-                {
-                    existing.ReplaceAll(channels);
-                    foreach (DiscordChannel channel in channels)
-                    {
-                        _channelsById[channel.Id] = channel;
-                    }
-                    return existing;
-                });
-            return;
-        }
+        // Materialize first: the caller may pass this guild's live list, which is about to be replaced.
+        DiscordChannel[] channelArray = channels.ToArray();
 
-        // Ensure all channels have the Guild property set
-        List<DiscordChannel> channelList = [];
-        foreach (DiscordChannel channel in channels)
+        if (_guilds.TryGetValue(guildId, out DiscordGuild? guild))
         {
-            if (channel.Guild?.Id == guildId)
+            foreach (DiscordChannel channel in channelArray)
             {
-                // Guild already set correctly
-                channelList.Add(channel);
-            }
-            else
-            {
-                // Set Guild property - channels are mutable so we can update directly
                 channel.Guild = guild;
-                channelList.Add(channel);
             }
         }
 
-        // Use AddOrUpdate to preserve existing list object for UI bindings
-        _channelsByGuild.AddOrUpdate(guildId,
-            _ =>
-            {
-                var list = new ObservableConcurrentList<DiscordChannel>(_synchronizationContext);
-                list.AddRange(channelList);
-                foreach (DiscordChannel channel in channelList)
-                {
-                    _channelsById[channel.Id] = channel;
-                }
-                return list;
-            },
-            (_, existing) =>
-            {
-                existing.ReplaceAll(channelList);
-                foreach (DiscordChannel channel in channelList)
-                {
-                    _channelsById[channel.Id] = channel;
-                }
-                return existing;
-            });
+        // Use GetOrAdd to preserve the existing list object for UI bindings
+        ObservableConcurrentList<DiscordChannel> list = _channelsByGuild.GetOrAdd(guildId, _ => new ObservableConcurrentList<DiscordChannel>(_synchronizationContext));
+
+        foreach (DiscordChannel previous in list.ToArray())
+        {
+            _channelsById.TryRemove(previous.Id, out _);
+        }
+
+        list.ReplaceAll(channelArray);
+
+        foreach (DiscordChannel channel in channelArray)
+        {
+            _channelsById[channel.Id] = channel;
+        }
+    }
+
+    /// <summary>
+    /// Caches a DM channel. DM channels have no guild, so they are only reachable by channel id.
+    /// </summary>
+    public void UpsertDmChannel(DiscordChannel channel)
+    {
+        _channelsById[channel.Id] = channel;
     }
 
     public void SetMembers(ulong guildId, IEnumerable<DiscordMember> members)
     {
-        if (!_guilds.TryGetValue(guildId, out DiscordGuild guild))
-        {
-            // Guild not in cache yet - store members as-is (Guild will be set later via UpsertMember)
-            var list = new ObservableConcurrentList<DiscordMember>(_synchronizationContext);
-            list.AddRange(members);
-            _membersByGuild[guildId] = list;
-            foreach (DiscordMember member in members)
-            {
-                RecordUserAccess(member.User.Id);
-            }
-            return;
-        }
+        DiscordMember[] memberArray = members.ToArray();
 
-        // Ensure all members have the Guild property set
-        List<DiscordMember> memberList = [];
-        foreach (DiscordMember member in members)
+        if (_guilds.TryGetValue(guildId, out DiscordGuild? guild))
         {
-            if (member.Guild?.Id == guildId)
+            foreach (DiscordMember member in memberArray)
             {
-                // Guild already set correctly
-                memberList.Add(member);
-            }
-            else
-            {
-                // Need to set Guild property - create new instance with guild
-                DiscordMember memberWithGuild = new()
-                {
-                    User = member.User,
-                    Guild = guild,
-                    Nick = member.Nick,
-                    Roles = member.Roles,
-                    Avatar = member.Avatar,
-                    Joined_At = member.Joined_At,
-                    Premium_Since = member.Premium_Since,
-                    Deaf = member.Deaf,
-                    Mute = member.Mute,
-                    Flags = member.Flags,
-                    Pending = member.Pending,
-                    Permissions = member.Permissions,
-                    Communication_Disabled_Until = member.Communication_Disabled_Until
-                };
-                memberList.Add(memberWithGuild);
+                member.Guild = guild;
             }
         }
 
-        // Use AddOrUpdate to preserve existing list object for UI bindings
-        _membersByGuild.AddOrUpdate(guildId,
-            _ =>
-            {
-                var list = new ObservableConcurrentList<DiscordMember>(_synchronizationContext);
-                list.AddRange(memberList);
-                foreach (DiscordMember member in memberList)
-                {
-                    RecordUserAccess(member.User.Id);
-                }
-                return list;
-            },
-            (_, existing) =>
-            {
-                existing.ReplaceAll(memberList);
-                return existing;
-            });
+        ConcurrentDictionary<ulong, DiscordMember> index = GetMemberIndex(guildId);
+        index.Clear();
+        foreach (DiscordMember member in memberArray)
+        {
+            index[member.User.Id] = member;
+        }
+
+        // Use GetOrAdd to preserve the existing list object for UI bindings
+        ObservableConcurrentList<DiscordMember> list = _membersByGuild.GetOrAdd(guildId, _ => new ObservableConcurrentList<DiscordMember>(_synchronizationContext));
+        list.ReplaceAll(memberArray);
     }
+
+    private ConcurrentDictionary<ulong, DiscordMember> GetMemberIndex(ulong guildId)
+        => _memberIndexByGuild.GetOrAdd(guildId, static _ => new ConcurrentDictionary<ulong, DiscordMember>());
 
     public IReadOnlyList<DiscordGuild> SnapshotGuilds() => _guilds.Values.OrderBy(g => g.Id).ToArray();
 
@@ -427,15 +353,50 @@ internal sealed class EntityCache
         _guilds.Clear();
         _channelsByGuild.Clear();
         _membersByGuild.Clear();
+        _memberIndexByGuild.Clear();
         _users.Clear();
         _channelsById.Clear();
         _rolesById.Clear();
-        while (_userAccessOrder.TryDequeue(out _)) { }
+        while (_userInsertOrder.TryDequeue(out _)) { }
     }
 
-    public void UpsertGuild(DiscordGuild guild)
+    /// <summary>
+    /// Adds a guild or merges it into the cached instance, keeping references held by channels,
+    /// members and roles valid. Returns the instance that is now in the cache.
+    /// </summary>
+    public DiscordGuild UpsertGuild(DiscordGuild guild)
     {
-        _guilds[guild.Id] = guild;
+        DiscordGuild cached = guild;
+        if (_guilds.TryGetValue(guild.Id, out DiscordGuild? existing) && !ReferenceEquals(existing, guild))
+        {
+            lock (existing)
+            {
+                if (guild.Roles is not null && existing.Roles is not null)
+                {
+                    foreach (DiscordRole role in existing.Roles)
+                    {
+                        _rolesById.TryRemove(role.Id, out _);
+                    }
+                }
+                existing.CopyFrom(guild);
+            }
+            cached = existing;
+        }
+
+        DiscordRole[]? roles;
+        lock (cached)
+            roles = cached.Roles;
+        if (roles is not null)
+        {
+            foreach (DiscordRole role in roles)
+            {
+                role.Guild = cached;
+                _rolesById[role.Id] = role;
+            }
+        }
+
+        _guilds[cached.Id] = cached;
+        return cached;
     }
 
     public void RemoveGuild(ulong guildId)
@@ -443,6 +404,7 @@ internal sealed class EntityCache
         _guilds.TryRemove(guildId, out var guild);
         _channelsByGuild.TryRemove(guildId, out var oldChannels);
         _membersByGuild.TryRemove(guildId, out _);
+        _memberIndexByGuild.TryRemove(guildId, out _);
 
         if (oldChannels != null)
         {
@@ -493,62 +455,93 @@ internal sealed class EntityCache
 
     public void UpsertMember(ulong guildId, DiscordMember member)
     {
-        // Ensure member has Guild property set
-        DiscordMember memberWithGuild = member;
-        if (member.Guild?.Id != guildId && _guilds.TryGetValue(guildId, out DiscordGuild guild))
+        if (_guilds.TryGetValue(guildId, out DiscordGuild? guild))
         {
-            // Need to set Guild property - create new instance
-            memberWithGuild = new()
-            {
-                User = member.User,
-                Guild = guild,
-                Nick = member.Nick,
-                Roles = member.Roles,
-                Avatar = member.Avatar,
-                Joined_At = member.Joined_At,
-                Premium_Since = member.Premium_Since,
-                Deaf = member.Deaf,
-                Mute = member.Mute,
-                Flags = member.Flags,
-                Pending = member.Pending,
-                Permissions = member.Permissions,
-                Communication_Disabled_Until = member.Communication_Disabled_Until
-            };
+            member.Guild = guild;
         }
-        _users[memberWithGuild.User.Id] = memberWithGuild.User;
-        RecordUserAccess(memberWithGuild.User.Id);
+
+        StoreUser(member.User);
+
+        ConcurrentDictionary<ulong, DiscordMember> index = GetMemberIndex(guildId);
+        bool exists = index.ContainsKey(member.User.Id);
+        index[member.User.Id] = member;
 
         ObservableConcurrentList<DiscordMember> list = _membersByGuild.GetOrAdd(guildId, _ => new ObservableConcurrentList<DiscordMember>(_synchronizationContext));
 
-        // Atomic add-or-update under a single write lock
-        list.AddOrUpdate(m => m.User.Id == memberWithGuild.User.Id, memberWithGuild);
+        // A member the index hasn't seen can't be in the list, so only updates need a scan
+        if (exists)
+        {
+            list.AddOrUpdate(m => m.User.Id == member.User.Id, member);
+        }
+        else
+        {
+            list.Add(member);
+        }
+    }
+
+    /// <summary>
+    /// Adds or updates a batch of members, such as a GUILD_MEMBERS_CHUNK. New members are appended
+    /// directly, so loading a large guild stays linear instead of scanning the list per member.
+    /// </summary>
+    public void UpsertMembers(ulong guildId, IReadOnlyList<DiscordMember> members)
+    {
+        if (members.Count == 0) return;
+
+        _guilds.TryGetValue(guildId, out DiscordGuild? guild);
+        ConcurrentDictionary<ulong, DiscordMember> index = GetMemberIndex(guildId);
+        ObservableConcurrentList<DiscordMember> list = _membersByGuild.GetOrAdd(guildId, _ => new ObservableConcurrentList<DiscordMember>(_synchronizationContext));
+
+        List<DiscordMember> added = new(members.Count);
+        Dictionary<ulong, DiscordMember>? updated = null;
+
+        foreach (DiscordMember member in members)
+        {
+            if (guild is not null)
+            {
+                member.Guild = guild;
+            }
+
+            StoreUser(member.User);
+
+            if (index.ContainsKey(member.User.Id))
+            {
+                (updated ??= new Dictionary<ulong, DiscordMember>())[member.User.Id] = member;
+            }
+            else
+            {
+                added.Add(member);
+            }
+            index[member.User.Id] = member;
+        }
+
+        if (added.Count > 0)
+        {
+            list.AddRange(added);
+        }
+
+        if (updated is not null)
+        {
+            list.ReplaceEach(m => updated.TryGetValue(m.User.Id, out DiscordMember? replacement) ? replacement : m);
+        }
     }
 
     public void RemoveMember(ulong guildId, ulong userId)
     {
+        if (_memberIndexByGuild.TryGetValue(guildId, out ConcurrentDictionary<ulong, DiscordMember>? index))
+        {
+            index.TryRemove(userId, out _);
+        }
+
         if (!_membersByGuild.TryGetValue(guildId, out ObservableConcurrentList<DiscordMember>? list)) return;
         list.Remove(m => m.User.Id == userId);
     }
 
     public void UpsertRole(ulong guildId, DiscordRole role)
     {
-        if (!_guilds.TryGetValue(guildId, out DiscordGuild guild)) return;
+        if (!_guilds.TryGetValue(guildId, out DiscordGuild? guild)) return;
 
-        // Ensure role has Guild property set
         DiscordRole roleWithGuild = role;
-        if (role.Guild.Id != guildId)
-        {
-            // Need to set Guild property - create new instance
-            roleWithGuild = new()
-            {
-                Id = role.Id,
-                Name = role.Name,
-                Guild = guild,
-                Color = role.Color,
-                Position = role.Position,
-                Permissions = role.Permissions
-            };
-        }
+        roleWithGuild.Guild = guild;
 
         lock (guild)
         {
@@ -589,8 +582,7 @@ internal sealed class EntityCache
                 user.Bot = existing.Bot;
             }
         }
-        _users[user.Id] = user;
-        RecordUserAccess(user.Id);
+        StoreUser(user);
     }
 
     public void RemoveRole(ulong guildId, ulong roleId)
@@ -629,18 +621,15 @@ internal sealed class EntityCache
     {
         if (_users.TryGetValue(userId, out user!))
         {
-            RecordUserAccess(userId);
             return true;
         }
 
-        foreach (ObservableConcurrentList<DiscordMember> members in _membersByGuild.Values)
+        foreach (ConcurrentDictionary<ulong, DiscordMember> index in _memberIndexByGuild.Values)
         {
-            DiscordMember? member = members.FirstOrDefault(m => m.User.Id == userId);
-            if (member == null) continue;
+            if (!index.TryGetValue(userId, out DiscordMember? member)) continue;
             user = member.User;
             // Store in users cache for future lookups
-            _users[userId] = user;
-            RecordUserAccess(userId);
+            StoreUser(user);
             return true;
         }
         user = null!;
@@ -649,16 +638,11 @@ internal sealed class EntityCache
 
     public bool TryGetMember(ulong guildId, ulong userId, out DiscordMember member)
     {
-        if (_membersByGuild.TryGetValue(guildId, out var list))
+        if (_memberIndexByGuild.TryGetValue(guildId, out ConcurrentDictionary<ulong, DiscordMember>? index) &&
+            index.TryGetValue(userId, out DiscordMember? found))
         {
-            foreach (var m in list.ToArray())
-            {
-                if (m.User.Id == userId)
-                {
-                    member = m;
-                    return true;
-                }
-            }
+            member = found;
+            return true;
         }
         member = null!;
         return false;
@@ -686,44 +670,29 @@ internal sealed class EntityCache
         return false;
     }
 
-    // --- LRU eviction for user cache ---
+    // --- First-in, first-out eviction for the user cache ---
 
-    private void RecordUserAccess(ulong userId)
+    /// <summary>
+    /// Stores a user. Only new users join the eviction queue, which keeps the queue the same
+    /// size as the cache no matter how often existing users are refreshed.
+    /// </summary>
+    private void StoreUser(DiscordUser user)
     {
-        _userAccessOrder.Enqueue(userId);
-        TrimUsersIfNeeded();
-        DrainStaleEntries();
-    }
+        bool isNew = !_users.ContainsKey(user.Id);
+        _users[user.Id] = user;
 
-    private void DrainStaleEntries()
-    {
-        int drained = 0;
-        while (drained < 32 && _userAccessOrder.TryDequeue(out ulong userId))
+        if (isNew)
         {
-            if (_users.ContainsKey(userId))
-            {
-                _userAccessOrder.Enqueue(userId);
-                break;
-            }
-            drained++;
+            _userInsertOrder.Enqueue(user.Id);
+            TrimUsersIfNeeded();
         }
     }
 
     private void TrimUsersIfNeeded()
     {
-        if (_users.Count <= MaxUsers)
-            return;
-
-        int excess = _users.Count - MaxUsers;
-        int removed = 0;
-        int maxAttempts = excess * 3;
-
-        while (removed < excess && maxAttempts-- > 0 && _userAccessOrder.TryDequeue(out ulong userId))
+        while (_users.Count > MaxUsers && _userInsertOrder.TryDequeue(out ulong userId))
         {
-            if (_users.TryRemove(userId, out _))
-            {
-                removed++;
-            }
+            _users.TryRemove(userId, out _);
         }
     }
 }

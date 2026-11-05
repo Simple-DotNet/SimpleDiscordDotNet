@@ -35,6 +35,42 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
     public Task<DiscordMessage?> SendMessageAsync(DiscordChannel channel, MessageBuilder builder, CancellationToken ct = default)
         => _bot.SendMessageAsync(channel, builder, ct);
 
+    public Task<DiscordChannel?> CreateThreadAsync(ulong channelId, string name, bool isPrivate = false, int? autoArchiveMinutes = null, CancellationToken ct = default)
+        => _bot.CreateThreadAsync(channelId, name, isPrivate, autoArchiveMinutes, ct);
+
+    public Task<DiscordChannel?> CreateThreadFromMessageAsync(ulong channelId, ulong messageId, string name, int? autoArchiveMinutes = null, CancellationToken ct = default)
+        => _bot.CreateThreadFromMessageAsync(channelId, messageId, name, autoArchiveMinutes, ct);
+
+    public Task<DiscordMessage?> CreateForumPostAsync(ulong channelId, string title, MessageBuilder message, int? autoArchiveMinutes = null, CancellationToken ct = default)
+        => _bot.CreateForumPostAsync(channelId, title, message, autoArchiveMinutes, ct);
+
+    public Task<IEnumerable<DiscordChannel>> GetArchivedThreadsAsync(ulong channelId, bool isPrivate = false, CancellationToken ct = default)
+        => _bot.GetArchivedThreadsAsync(channelId, isPrivate, ct);
+
+    public Task<IEnumerable<DiscordChannel>> GetActiveThreadsAsync(ulong guildId, CancellationToken ct = default)
+        => _bot.GetActiveThreadsAsync(guildId, ct);
+
+    public Task UnpinMessageAsync(ulong channelId, ulong messageId, CancellationToken ct = default)
+        => _bot.UnpinMessageAsync(channelId, messageId, ct);
+
+    public Task<DiscordMessage?> ForwardMessageAsync(ulong toChannelId, ulong fromChannelId, ulong messageId, CancellationToken ct = default)
+        => _bot.ForwardMessageAsync(toChannelId, fromChannelId, messageId, ct);
+
+    public Task<DiscordMessage?> EndPollAsync(ulong channelId, ulong messageId, CancellationToken ct = default)
+        => _bot.EndPollAsync(channelId, messageId, ct);
+
+    public Task<IEnumerable<DiscordUser>> GetPollVotersAsync(ulong channelId, ulong messageId, int answerId, CancellationToken ct = default)
+        => _bot.GetPollVotersAsync(channelId, messageId, answerId, ct);
+
+    public Task<IEnumerable<DiscordMember>> SearchMembersAsync(ulong guildId, string query, int limit = 100, CancellationToken ct = default)
+        => _bot.SearchMembersAsync(guildId, query, limit, ct);
+
+    public Task<BulkBanResult?> BulkBanAsync(ulong guildId, IEnumerable<ulong> userIds, int? deleteMessageSeconds = null, CancellationToken ct = default, string? reason = null)
+        => _bot.BulkBanAsync(guildId, userIds, deleteMessageSeconds, ct, reason);
+
+    public Task<IEnumerable<DiscordMessage>> SearchMessagesAsync(ulong guildId, string content, int limit = 25, CancellationToken ct = default)
+        => _bot.SearchMessagesAsync(guildId, content, limit, ct);
+
     public Task<DiscordMessage?> SendAttachmentAsync(string channelId, string content, string fileName, ReadOnlyMemory<byte> data, EmbedBuilder? embed = null, CancellationToken ct = default)
         => _bot.SendAttachmentAsync(channelId, content, fileName, data, embed, ct);
 
@@ -109,13 +145,13 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
     public Task UnmuteMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
         => _bot.UnmuteMemberAsync(guildId, userId, ct);
 
-    public Task KickMemberAsync(string guildId, string userId, CancellationToken ct = default)
-        => _bot.KickMemberAsync(guildId, userId, ct);
-    public Task KickMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default)
-        => _bot.KickMemberAsync(guildId.ToString(CultureInfo.InvariantCulture), userId.ToString(CultureInfo.InvariantCulture), ct);
+    public Task KickMemberAsync(string guildId, string userId, CancellationToken ct = default, string? reason = null)
+        => _bot.KickMemberAsync(guildId, userId, ct, reason);
+    public Task KickMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default, string? reason = null)
+        => _bot.KickMemberAsync(guildId.ToString(CultureInfo.InvariantCulture), userId.ToString(CultureInfo.InvariantCulture), ct, reason);
 
-    public Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays = null, CancellationToken ct = default)
-        => _bot.BanMemberAsync(guildId, userId, deleteMessageDays, ct);
+    public Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays = null, CancellationToken ct = default, string? reason = null)
+        => _bot.BanMemberAsync(guildId, userId, deleteMessageDays, ct, reason);
 
     public Task<DiscordMessage?> SendDMAsync(string userId, string content, EmbedBuilder? embed = null, CancellationToken ct = default)
         => _bot.SendDMAsync(userId, content, embed, ct);
@@ -132,7 +168,7 @@ internal sealed class DiscordContextOperations : IDiscordContextOperations
     public Task DeleteMessageAsync(ulong channelId, ulong messageId, CancellationToken ct = default)
         => _bot.DeleteMessageAsync(channelId, messageId, ct);
 
-    public Task<DiscordChannel?> CreateChannelAsync(ulong guildId, string name, ChannelType type, string? parentId = null, object[]? permissionOverwrites = null, CancellationToken ct = default)
+    public Task<DiscordChannel?> CreateChannelAsync(ulong guildId, string name, ChannelType type, string? parentId = null, ChannelPermissionOverwrite[]? permissionOverwrites = null, CancellationToken ct = default)
         => _bot.CreateChannelAsync(guildId.ToString(CultureInfo.InvariantCulture), name, type, parentId, permissionOverwrites, ct);
 
     public Task DeleteChannelAsync(ulong channelId, CancellationToken ct = default)

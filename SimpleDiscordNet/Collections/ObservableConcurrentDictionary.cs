@@ -238,10 +238,19 @@ public sealed class ObservableConcurrentDictionary<TKey, TValue> : INotifyCollec
             {
                 _dictionary.TryRemove(key, out _);
             }
+            MarkPendingChanges();
         }
         finally
         {
             EndBatchUpdate();
+        }
+    }
+
+    private void MarkPendingChanges()
+    {
+        lock (_batchLock)
+        {
+            _hasPendingChanges = true;
         }
     }
 
@@ -259,6 +268,7 @@ public sealed class ObservableConcurrentDictionary<TKey, TValue> : INotifyCollec
             {
                 _dictionary[kvp.Key] = kvp.Value;
             }
+            MarkPendingChanges();
         }
         finally
         {

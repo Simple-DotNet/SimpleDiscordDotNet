@@ -26,6 +26,9 @@ public sealed record DiscordBotOptions
     /// <summary>Optional time provider for testing or customization.</summary>
     public TimeProvider? TimeProvider { get; init; }
 
+    /// <summary>Services for handler constructors. The bot itself is always available.</summary>
+    public IServiceProvider? Services { get; init; }
+
     /// <summary>Preload caches on start using REST calls.</summary>
     public bool PreloadGuilds { get; init; } = true;
     public bool PreloadChannels { get; init; } = true;
@@ -121,8 +124,15 @@ public sealed record DiscordBotOptions
     public SynchronizationContext? SynchronizationContext { get; init; }
 
     /// <summary>
-    /// Enables debug logging of all outgoing gateway payloads via the Error event.
+    /// Enables logging of outgoing gateway payloads at Debug level. Identify and Resume payloads
+    /// are hidden because they carry the bot token.
     /// Default is false. Useful for diagnosing Discord 4002 or other gateway issues.
     /// </summary>
     public bool EnableGatewayDebug { get; init; } = false;
+
+    /// <summary>
+    /// Returns a description of these options without the bot token, so they are safe to log.
+    /// </summary>
+    public override string ToString()
+        => $"{nameof(DiscordBotOptions)} {{ Token = ***, Intents = {Intents}, ShardMode = {ShardMode} }}";
 }

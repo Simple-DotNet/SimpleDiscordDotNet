@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 using SimpleDiscordNet.Primitives;
 
 namespace SimpleDiscordNet.Entities;
@@ -28,11 +29,46 @@ public sealed class DiscordChannel
     public required int Type { get; init; }
 
     /// <summary>The guild this channel belongs to. Null for DM channels.</summary>
+    [JsonIgnore]
     public DiscordGuild? Guild { get; internal set; }
 
+    [JsonInclude]
     public ulong? Parent_Id { get; internal set; }
+
+    [JsonInclude]
     public ulong? Guild_Id { get; internal set; }
+
+    [JsonInclude]
     public ChannelPermissionOverwrite[]? Permission_Overwrites { get; internal set; }
+
+    /// <summary>Discord's channel flags as a bitfield.</summary>
+    [JsonInclude]
+    public int? Flags { get; internal set; }
+
+    /// <summary>The user who created this thread. Null for other channels.</summary>
+    [JsonInclude]
+    public ulong? Owner_Id { get; internal set; }
+
+    /// <summary>Thread-specific details such as whether it's archived. Null for other channels.</summary>
+    [JsonInclude]
+    public ThreadMetadata? Thread_Metadata { get; internal set; }
+
+    /// <summary>The tags available in a forum or media channel.</summary>
+    [JsonInclude]
+    public ForumTag[]? Available_Tags { get; internal set; }
+
+    /// <summary>The IDs of the tags applied to a forum post.</summary>
+    [JsonInclude]
+    public ulong[]? Applied_Tags { get; internal set; }
+
+    /// <summary>
+    /// True when the bot can't view this channel, so Discord hid its details.
+    /// Only the ID, type, position and parent are reliable, and the name is a placeholder.
+    /// A ChannelUpdated event delivers the full channel if the bot gains access.
+    /// </summary>
+    public bool IsObfuscated => ((Flags ?? 0) & ChannelObfuscatedFlag) != 0;
+
+    private const int ChannelObfuscatedFlag = 1 << 17;
 
     /// <summary>Gets the channel type as an enum</summary>
     public ChannelType ChannelType => (ChannelType)Type;
@@ -48,6 +84,9 @@ public sealed class DiscordChannel
 
     /// <summary>Returns true if this channel is a thread (Types 10, 11, 12)</summary>
     public bool IsThread => Type is (int)Entities.ChannelType.AnnouncementThread or (int)Entities.ChannelType.PublicThread or (int)Entities.ChannelType.PrivateThread;
+
+    /// <summary>Returns true for forum and media channels, where messages are posted as threads</summary>
+    public bool IsForum => Type is (int)Entities.ChannelType.GuildForum or (int)Entities.ChannelType.GuildMedia;
 
     /// <summary>Returns true if this channel is in a category (has Parent_Id)</summary>
     public bool HasParent => Parent_Id.HasValue;
@@ -77,6 +116,34 @@ public sealed class DiscordChannel
     /// </summary>
     public Task<DiscordMessage?> SendMessageAsync(MessageBuilder builder, CancellationToken ct = default)
         => Context.DiscordContext.Operations.SendMessageAsync(Id.ToString(CultureInfo.InvariantCulture), builder, ct);
+
+    /// <summary>
+    /// Creates a thread in this channel without a starting message.
+    /// Example: var thread = await channel.CreateThreadAsync("Planning");
+    /// </summary>
+    /// <param name="name">Thread name</param>
+    /// <param name="isPrivate">True for a private thread that's invite-only</param>
+    /// <param name="autoArchiveMinutes">Minutes of inactivity before archiving: 60, 1440, 4320 or 10080</param>
+    public Task<DiscordChannel?> CreateThreadAsync(string name, bool isPrivate = false, int? autoArchiveMinutes = null, CancellationToken ct = default)
+        => Context.DiscordContext.Operations.CreateThreadAsync(Id, name, isPrivate, autoArchiveMinutes, ct);
+
+    /// <summary>
+    /// Creates a post in this forum or media channel. The returned message's ChannelId is the new post's thread.
+    /// Example: await channel.CreateForumPostAsync("Patch notes", new MessageBuilder().WithContent("Version 2 is out!"));
+    /// </summary>
+    /// <param name="title">Post title</param>
+    /// <param name="message">The post's first message</param>
+    /// <param name="autoArchiveMinutes">Minutes of inactivity before archiving: 60, 1440, 4320 or 10080</param>
+    public Task<DiscordMessage?> CreateForumPostAsync(string title, MessageBuilder message, int? autoArchiveMinutes = null, CancellationToken ct = default)
+        => Context.DiscordContext.Operations.CreateForumPostAsync(Id, title, message, autoArchiveMinutes, ct);
+
+    /// <summary>
+    /// Gets this channel's archived threads.
+    /// Example: foreach (var thread in await channel.GetArchivedThreadsAsync()) { }
+    /// </summary>
+    /// <param name="isPrivate">True for private threads, which requires the Manage Threads permission</param>
+    public Task<IEnumerable<DiscordChannel>> GetArchivedThreadsAsync(bool isPrivate = false, CancellationToken ct = default)
+        => Context.DiscordContext.Operations.GetArchivedThreadsAsync(Id, isPrivate, ct);
 
     /// <summary>
     /// Sends a reply to a message in this channel.
@@ -281,6 +348,32 @@ public sealed class DiscordChannel
     }
 }
 
+/// <summary>
+/// Thread-specific details of a thread channel.
+/// </summary>
+public sealed record ThreadMetadata
+{
+    public bool Archived { get; init; }
+    public int Auto_Archive_Duration { get; init; }
+    public DateTimeOffset? Archive_Timestamp { get; init; }
+    public bool Locked { get; init; }
+    public bool? Invitable { get; init; }
+}
+
+/// <summary>
+/// A tag that can be applied to posts in a forum or media channel.
+/// </summary>
+public sealed record ForumTag
+{
+    public required ulong Id { get; init; }
+    public required string Name { get; init; }
+
+    /// <summary>True if only members with Manage Threads can apply this tag.</summary>
+    public bool Moderated { get; init; }
+    public ulong? Emoji_Id { get; init; }
+    public string? Emoji_Name { get; init; }
+}
+
 public sealed record ChannelPermissionOverwrite
 {
     public required ulong Id { get; init; }
@@ -292,8 +385,10 @@ public sealed record ChannelPermissionOverwrite
     public required ulong Deny { get; init; }
 
     /// <summary>Returns true if this overwriting is for a role (Type = 0)</summary>
+    [JsonIgnore]
     public bool IsRole => Type == 0;
     /// <summary>Returns true if this overwriting is for a member (Type = 1)</summary>
+    [JsonIgnore]
     public bool IsMember => Type == 1;
 
     /// <summary>Checks if a specific permission is explicitly allowed</summary>

@@ -28,7 +28,10 @@ internal sealed class IdentifyConnectionProperties
 internal sealed class Heartbeat
 {
     public int op { get; set; } = 1; // Heartbeat opcode
-    public object? d { get; set; }
+
+    // Discord expects d to be present, and null until the first sequence number arrives
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public long? d { get; set; }
 }
 
 internal sealed class Resume

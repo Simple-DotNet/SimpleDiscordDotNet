@@ -10,6 +10,8 @@ namespace SimpleDiscordNet;
 /// </summary>
 public sealed class MessageBuilder
 {
+    private const int IsComponentsV2Flag = 1 << 15;
+
     private string? _content;
     private EmbedBuilder? _embed;
     private List<EmbedBuilder>? _embeds;
@@ -20,6 +22,7 @@ public sealed class MessageBuilder
     private bool? _replyFailIfNotExists;
     private string? _threadName;
     private List<string>? _appliedTags;
+    private PollBuilder? _poll;
 
     /// <summary>
     /// Sets the message text content.
@@ -108,6 +111,40 @@ public sealed class MessageBuilder
     }
 
     /// <summary>
+    /// Adds a block of markdown text to a layout message.
+    /// Example: builder.WithText("## Build passed");
+    /// </summary>
+    public MessageBuilder WithText(string markdown)
+        => WithComponents(new TextDisplay(markdown));
+
+    /// <summary>
+    /// Adds a box that groups components, with an optional accent color.
+    /// Example: builder.WithContainer(new TextDisplay("Build passed"), new Button("Logs", "logs"));
+    /// </summary>
+    public MessageBuilder WithContainer(params IComponent[] components)
+        => WithComponents(new Container(components));
+
+    /// <summary>
+    /// Adds text with a button or thumbnail beside it.
+    /// Example: builder.WithSection("Ready to deploy?", new Button("Deploy", "deploy"));
+    /// </summary>
+    public MessageBuilder WithSection(string text, IComponent accessory)
+        => WithComponents(new Section(text, accessory));
+
+    /// <summary>
+    /// Adds a gallery of 1 to 10 images or videos.
+    /// Example: builder.WithGallery("https://example.com/a.png", "https://example.com/b.png");
+    /// </summary>
+    public MessageBuilder WithGallery(params string[] urls)
+        => WithComponents(new MediaGallery(urls));
+
+    /// <summary>
+    /// Adds space between components, with an optional divider line.
+    /// </summary>
+    public MessageBuilder WithSeparator(bool divider = true, bool largeSpacing = false)
+        => WithComponents(new Separator(divider, largeSpacing));
+
+    /// <summary>
     /// Sets mention behavior using a MentionBuilder.
     /// Example: builder.WithMention(MentionBuilder.User(userId));
     /// </summary>
@@ -147,7 +184,31 @@ public sealed class MessageBuilder
     }
 
     /// <summary>
+    /// Adds a poll that runs for Discord's default of 24 hours.
+    /// Example: builder.WithPoll("Pizza or tacos?", "Pizza", "Tacos");
+    /// </summary>
+    public MessageBuilder WithPoll(string question, params string[] answers)
+    {
+        PollBuilder poll = new(question);
+        foreach (string answer in answers)
+            poll.AddAnswer(answer);
+        _poll = poll;
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a poll with custom settings.
+    /// Example: builder.WithPoll(new PollBuilder("Pizza or tacos?").AddAnswer("Pizza", "🍕").AddAnswer("Tacos", "🌮").WithDuration(48));
+    /// </summary>
+    public MessageBuilder WithPoll(PollBuilder poll)
+    {
+        _poll = poll;
+        return this;
+    }
+
+    /// <summary>
     /// Creates this message as a forum post with a thread name.
+    /// Send it to a forum or media channel. To use a tag, pass its ID from the channel's Available_Tags.
     /// Example: builder.WithForumPost("My Forum Post");
     /// </summary>
     public MessageBuilder WithForumPost(string threadName, params string[] appliedTags)
@@ -244,33 +305,22 @@ public sealed class MessageBuilder
                 embedList.Add(e.Build());
         }
 
-        IComponent[]? components = null;
-        if (_components is not null && _components.Count > 0)
+        IComponent[]? components = _components is { Count: > 0 } ? ComponentLayout.Arrange(_components) : null;
+        string? content = _content;
+        int? flags = null;
+
+        // Layout components replace content and embeds, so plain content moves into the layout
+        if (components is not null && components.Any(static c => c is not ActionRow))
         {
-            List<IComponent> rows = [];
-            List<IComponent> nonActionRowComponents = [];
-            foreach (IComponent component in _components)
+            if (embedList.Count > 0 || _poll is not null)
+                throw new InvalidOperationException("A message with layout components, such as a Container or TextDisplay, can't also have embeds or a poll.");
+
+            if (!string.IsNullOrEmpty(content))
             {
-                if (component is ActionRow row)
-                {
-                    // Flush any accumulated non-ActionRow components
-                    if (nonActionRowComponents.Count > 0)
-                    {
-                        rows.Add(new ActionRow(nonActionRowComponents.ToArray()));
-                        nonActionRowComponents.Clear();
-                    }
-                    rows.Add(row);
-                }
-                else
-                {
-                    nonActionRowComponents.Add(component);
-                }
+                components = [new TextDisplay(content), .. components];
+                content = null;
             }
-            if (nonActionRowComponents.Count > 0)
-            {
-                rows.Add(new ActionRow(nonActionRowComponents.ToArray()));
-            }
-            components = rows.ToArray();
+            flags = IsComponentsV2Flag;
         }
 
         AttachmentReference[]? attachments = null;
@@ -283,14 +333,16 @@ public sealed class MessageBuilder
 
         return new MessagePayload
         {
-            content = _content,
+            content = content,
             embeds = embedList.Count > 0 ? embedList.ToArray() : null,
             components = components,
             allowed_mentions = _mentionBuilder?.BuildAllowedMentions(),
             attachments = attachments,
             message_reference = _replyMessageId is not null ? new MessageReference { message_id = _replyMessageId, fail_if_not_exists = _replyFailIfNotExists } : null,
             thread_name = _threadName,
-            applied_tags = _appliedTags?.ToArray()
+            applied_tags = _appliedTags?.ToArray(),
+            poll = _poll?.Build(),
+            flags = flags
         };
     }
 
@@ -315,6 +367,11 @@ public sealed class MessageBuilder
         _components?.Clear();
         _mentionBuilder = null;
         _files?.Clear();
+        _replyMessageId = null;
+        _replyFailIfNotExists = null;
+        _threadName = null;
+        _appliedTags?.Clear();
+        _poll = null;
         return this;
     }
 }

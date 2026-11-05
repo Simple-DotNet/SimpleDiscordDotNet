@@ -7,7 +7,7 @@ namespace SimpleDiscordNet.Sharding;
 /// Utility for calculating which shard a guild belongs to using Discord's formula.
 /// Uses span-based operations for zero-allocation calculations.
 /// </summary>
-internal static class ShardCalculator
+public static class ShardCalculator
 {
     /// <summary>
     /// Calculates which shard a guild belongs to using Discord's formula: (guild_id >> 22) % num_shards.

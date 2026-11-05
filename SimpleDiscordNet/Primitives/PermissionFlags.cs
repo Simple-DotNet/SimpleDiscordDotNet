@@ -9,7 +9,6 @@ namespace SimpleDiscordNet;
 [Flags]
 public enum PermissionFlags : ulong
 {
-    // This is a non-exhaustive set; extend as needed
     CreateInstantInvite     = 1UL << 0,
     KickMembers             = 1UL << 1,
     BanMembers              = 1UL << 2,
@@ -51,4 +50,15 @@ public enum PermissionFlags : ulong
     SendMessagesInThreads   = 1UL << 38,
     UseEmbeddedActivities   = 1UL << 39,
     ModerateMembers         = 1UL << 40,
+    ViewCreatorMonetizationAnalytics = 1UL << 41,
+    UseSoundboard           = 1UL << 42,
+    CreateGuildExpressions  = 1UL << 43,
+    CreateEvents            = 1UL << 44,
+    UseExternalSounds       = 1UL << 45,
+    SendVoiceMessages       = 1UL << 46,
+    SetVoiceChannelStatus   = 1UL << 48,
+    SendPolls               = 1UL << 49,
+    UseExternalApps         = 1UL << 50,
+    PinMessages             = 1UL << 51,
+    BypassSlowmode          = 1UL << 52,
 }

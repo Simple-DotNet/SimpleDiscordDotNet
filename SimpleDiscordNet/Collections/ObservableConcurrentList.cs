@@ -151,11 +151,43 @@ public sealed class ObservableConcurrentList<T> : INotifyCollectionChanged, INot
         try
         {
             _list.AddRange(items);
+            MarkPendingChanges();
         }
         finally
         {
             _lock.ExitWriteLock();
             EndBatchUpdate();
+        }
+    }
+
+    /// <summary>
+    /// Replaces every item with the result of <paramref name="selector"/> in a single batch operation.
+    /// Only one collection change notification is raised after completion.
+    /// </summary>
+    internal void ReplaceEach(Func<T, T> selector)
+    {
+        BeginBatchUpdate();
+        _lock.EnterWriteLock();
+        try
+        {
+            for (int i = 0; i < _list.Count; i++)
+            {
+                _list[i] = selector(_list[i]);
+            }
+            MarkPendingChanges();
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+            EndBatchUpdate();
+        }
+    }
+
+    private void MarkPendingChanges()
+    {
+        lock (_batchLock)
+        {
+            _hasPendingChanges = true;
         }
     }
 
@@ -215,6 +247,7 @@ public sealed class ObservableConcurrentList<T> : INotifyCollectionChanged, INot
             {
                 _list.Remove(item);
             }
+            MarkPendingChanges();
         }
         finally
         {
@@ -233,6 +266,7 @@ public sealed class ObservableConcurrentList<T> : INotifyCollectionChanged, INot
         try
         {
             _list.Clear();
+            MarkPendingChanges();
         }
         finally
         {
@@ -253,6 +287,7 @@ public sealed class ObservableConcurrentList<T> : INotifyCollectionChanged, INot
         {
             _list.Clear();
             _list.AddRange(items);
+            MarkPendingChanges();
         }
         finally
         {

@@ -17,4 +17,8 @@ public sealed class MessagePayload
     public MessageReference? message_reference { get; set; }
     public string? thread_name { get; set; }
     public string[]? applied_tags { get; set; }
+    public PollRequest? poll { get; set; }
+
+    /// <summary>Message flags the builder needs, such as the Components V2 flag.</summary>
+    public int? flags { get; set; }
 }

@@ -22,6 +22,9 @@ public sealed record DiscordMessage
     public bool Pinned { get; init; }
     public int Type { get; init; }
 
+    /// <summary>The poll on this message, if any. Messages fetched through REST include this.</summary>
+    public DiscordPoll? Poll { get; init; }
+
     /// <summary>Message type constants</summary>
     public static class MessageType
     {
@@ -53,6 +56,43 @@ public sealed record DiscordMessage
     /// </summary>
     public Task PinAsync(CancellationToken ct = default)
         => Context.DiscordContext.Operations.PinMessageAsync(ChannelId, Id, ct);
+
+    /// <summary>
+    /// Unpins this message from its channel.
+    /// Example: await message.UnpinAsync();
+    /// </summary>
+    public Task UnpinAsync(CancellationToken ct = default)
+        => Context.DiscordContext.Operations.UnpinMessageAsync(ChannelId, Id, ct);
+
+    /// <summary>
+    /// Starts a thread from this message.
+    /// Example: var thread = await message.CreateThreadAsync("Discussion");
+    /// </summary>
+    /// <param name="name">Thread name</param>
+    /// <param name="autoArchiveMinutes">Minutes of inactivity before archiving: 60, 1440, 4320 or 10080</param>
+    public Task<DiscordChannel?> CreateThreadAsync(string name, int? autoArchiveMinutes = null, CancellationToken ct = default)
+        => Context.DiscordContext.Operations.CreateThreadFromMessageAsync(ChannelId, Id, name, autoArchiveMinutes, ct);
+
+    /// <summary>
+    /// Forwards this message to another channel. The bot must be able to read the message.
+    /// Example: await message.ForwardAsync(logChannelId);
+    /// </summary>
+    public Task<DiscordMessage?> ForwardAsync(ulong toChannelId, CancellationToken ct = default)
+        => Context.DiscordContext.Operations.ForwardMessageAsync(toChannelId, ChannelId, Id, ct);
+
+    /// <summary>
+    /// Ends this message's poll early and returns the updated message.
+    /// Example: await message.EndPollAsync();
+    /// </summary>
+    public Task<DiscordMessage?> EndPollAsync(CancellationToken ct = default)
+        => Context.DiscordContext.Operations.EndPollAsync(ChannelId, Id, ct);
+
+    /// <summary>
+    /// Gets everyone who voted for a poll answer.
+    /// Example: var voters = await message.GetPollVotersAsync(message.Poll!.Answers[0].Answer_Id);
+    /// </summary>
+    public Task<IEnumerable<DiscordUser>> GetPollVotersAsync(int answerId, CancellationToken ct = default)
+        => Context.DiscordContext.Operations.GetPollVotersAsync(ChannelId, Id, answerId, ct);
 
     /// <summary>
     /// Deletes this message.

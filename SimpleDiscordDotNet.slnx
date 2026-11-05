@@ -9,4 +9,7 @@
   <Project Path="SimpleDiscordNet.Generators/SimpleDiscordNet.Generators.csproj">
     <Platform Solution="*|x64" Project="x64" />
   </Project>
+  <Project Path="tests/SimpleDiscordNet.Tests/SimpleDiscordNet.Tests.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
 </Solution>

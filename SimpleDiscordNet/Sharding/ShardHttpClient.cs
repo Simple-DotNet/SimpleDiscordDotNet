@@ -9,7 +9,7 @@ namespace SimpleDiscordNet.Sharding;
 /// <summary>
 /// Span-optimized HTTP client wrapper for inter-process shard coordination.
 /// Uses ArrayBufferWriter and UTF8 JSON serialization for zero-copy operations.
-/// Example: var client = new ShardHttpClient(); await client.PostAsync("http://host:8080/path", data);
+/// Example: var client = new ShardHttpClient(clusterSecret); await client.PostAsync("http://host:8080/path", data);
 /// </summary>
 [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "ShardHttpClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all sharding models.")]
 [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "ShardHttpClient uses JsonSerializerOptions configured with source-generated DiscordJsonContext for all sharding models.")]
@@ -18,13 +18,14 @@ internal sealed class ShardHttpClient : IDisposable
     private readonly HttpClient _http;
     private readonly JsonSerializerOptions _json;
 
-    public ShardHttpClient()
+    public ShardHttpClient(string clusterSecret)
     {
         _http = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(10)
         };
-        _json = new JsonSerializerOptions(Serialization.DiscordJsonContext.Default.Options)
+        _http.DefaultRequestHeaders.Add(ClusterAuth.HeaderName, clusterSecret);
+        _json =new JsonSerializerOptions(Serialization.DiscordJsonContext.Default.Options)
         {
             TypeInfoResolver = Serialization.DiscordJsonContext.Default
         };

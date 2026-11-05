@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace SimpleDiscordNet.Entities;
 
@@ -10,36 +11,49 @@ public sealed class DiscordMember
     /// The guild this member belongs to.
     /// Note: Populated after deserialization as Discord's member API doesn't include guild in JSON.
     /// </summary>
+    [JsonIgnore]
     public DiscordGuild Guild { get; internal set; } = null!;
 
+    [JsonInclude]
     public string? Nick { get; internal set; }
+
+    [JsonInclude]
     public ulong[] Roles { get; internal set; } = [];
 
     /// <summary>Guild-specific avatar hash</summary>
+    [JsonInclude]
     public string? Avatar { get; internal set; }
 
     /// <summary>When the user joined the guild (ISO8601 timestamp)</summary>
+    [JsonInclude]
     public string? Joined_At { get; internal set; }
 
     /// <summary>When the user started boosting the guild (ISO8601 timestamp)</summary>
+    [JsonInclude]
     public string? Premium_Since { get; internal set; }
 
     /// <summary>Whether the user is deafened in voice channels</summary>
+    [JsonInclude]
     public bool? Deaf { get; internal set; }
 
     /// <summary>Whether the user is muted in voice channels</summary>
+    [JsonInclude]
     public bool? Mute { get; internal set; }
 
     /// <summary>Member flags (bit set)</summary>
+    [JsonInclude]
     public int? Flags { get; internal set; }
 
     /// <summary>Whether the user has not yet passed the guild's Membership Screening requirements</summary>
+    [JsonInclude]
     public bool? Pending { get; internal set; }
 
     /// <summary>Total permissions of the member in the channel (for interaction contexts)</summary>
+    [JsonInclude]
     public ulong? Permissions { get; internal set; }
 
     /// <summary>When the user's timeout will expire (ISO8601 timestamp). Null if not timed out.</summary>
+    [JsonInclude]
     public string? Communication_Disabled_Until { get; internal set; }
 
     /// <summary>
@@ -83,7 +97,21 @@ public sealed class DiscordMember
         => Context.DiscordContext.Operations.RemoveRoleFromMemberAsync(Guild.Id.ToString(CultureInfo.InvariantCulture), User.Id.ToString(CultureInfo.InvariantCulture), roleId.ToString(CultureInfo.InvariantCulture), ct);
 
     /// <summary>
-    /// Timeouts this member for a specified duration.
+    /// Kicks this member from the guild.
+    /// Example: await member.KickAsync(reason: "Spam");
+    /// </summary>
+    public Task KickAsync(CancellationToken ct = default, string? reason = null)
+        => Context.DiscordContext.Operations.KickMemberAsync(Guild.Id, User.Id, ct, reason);
+
+    /// <summary>
+    /// Bans this member from the guild.
+    /// Example: await member.BanAsync(deleteMessageDays: 1, reason: "Spam");
+    /// </summary>
+    public Task BanAsync(int? deleteMessageDays = null, CancellationToken ct = default, string? reason = null)
+        => Context.DiscordContext.Operations.BanMemberAsync(Guild.Id.ToString(CultureInfo.InvariantCulture), User.Id.ToString(CultureInfo.InvariantCulture), deleteMessageDays, ct, reason);
+
+    /// <summary>
+    /// Times out this member for a duration.
     /// Example: await member.TimeoutAsync(TimeSpan.FromHours(1));
     /// </summary>
     public Task TimeoutAsync(TimeSpan duration, CancellationToken ct = default)

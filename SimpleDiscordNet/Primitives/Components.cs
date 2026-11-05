@@ -18,7 +18,19 @@ public enum ComponentType
     UserSelect = 5,
     RoleSelect = 6,
     MentionableSelect = 7,
-    ChannelSelect = 8
+    ChannelSelect = 8,
+    Section = 9,
+    TextDisplay = 10,
+    Thumbnail = 11,
+    MediaGallery = 12,
+    File = 13,
+    Separator = 14,
+    Container = 17,
+    Label = 18,
+    FileUpload = 19,
+    RadioGroup = 21,
+    CheckboxGroup = 22,
+    Checkbox = 23
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
@@ -30,6 +42,18 @@ public enum ComponentType
 [JsonDerivedType(typeof(RoleSelect), (int)ComponentType.RoleSelect)]
 [JsonDerivedType(typeof(MentionableSelect), (int)ComponentType.MentionableSelect)]
 [JsonDerivedType(typeof(ChannelSelect), (int)ComponentType.ChannelSelect)]
+[JsonDerivedType(typeof(Section), (int)ComponentType.Section)]
+[JsonDerivedType(typeof(TextDisplay), (int)ComponentType.TextDisplay)]
+[JsonDerivedType(typeof(Thumbnail), (int)ComponentType.Thumbnail)]
+[JsonDerivedType(typeof(MediaGallery), (int)ComponentType.MediaGallery)]
+[JsonDerivedType(typeof(FileComponent), (int)ComponentType.File)]
+[JsonDerivedType(typeof(Separator), (int)ComponentType.Separator)]
+[JsonDerivedType(typeof(Container), (int)ComponentType.Container)]
+[JsonDerivedType(typeof(Label), (int)ComponentType.Label)]
+[JsonDerivedType(typeof(FileUpload), (int)ComponentType.FileUpload)]
+[JsonDerivedType(typeof(RadioGroup), (int)ComponentType.RadioGroup)]
+[JsonDerivedType(typeof(CheckboxGroup), (int)ComponentType.CheckboxGroup)]
+[JsonDerivedType(typeof(Checkbox), (int)ComponentType.Checkbox)]
 public interface IComponent
 {
     int type { get; }
@@ -123,6 +147,10 @@ public sealed class StringSelect : IComponent
     public int? min_values { get; }
     public int? max_values { get; }
     public bool? disabled { get; }
+
+    /// <summary>In a modal, whether the user must choose. Discord defaults to true.</summary>
+    public bool? required { get; init; }
+
     public StringSelect(string customId, IEnumerable<SelectOption> options, string? placeholder = null, int? min = null, int? max = null, bool disabled = false)
     {
         custom_id = customId;
@@ -143,6 +171,10 @@ public sealed class UserSelect : IComponent
     public int? max_values { get; }
     public bool? disabled { get; }
     public SelectDefaultValue[]? default_values { get; }
+
+    /// <summary>In a modal, whether the user must choose. Discord defaults to true.</summary>
+    public bool? required { get; init; }
+
     public UserSelect(string customId, string? placeholder = null, int? min = null, int? max = null, bool disabled = false, IEnumerable<SelectDefaultValue>? defaultValues = null)
     {
         custom_id = customId;
@@ -163,6 +195,10 @@ public sealed class RoleSelect : IComponent
     public int? max_values { get; }
     public bool? disabled { get; }
     public SelectDefaultValue[]? default_values { get; }
+
+    /// <summary>In a modal, whether the user must choose. Discord defaults to true.</summary>
+    public bool? required { get; init; }
+
     public RoleSelect(string customId, string? placeholder = null, int? min = null, int? max = null, bool disabled = false, IEnumerable<SelectDefaultValue>? defaultValues = null)
     {
         custom_id = customId;
@@ -204,6 +240,10 @@ public sealed class ChannelSelect : IComponent
     public bool? disabled { get; }
     public int[]? channel_types { get; }
     public SelectDefaultValue[]? default_values { get; }
+
+    /// <summary>In a modal, whether the user must choose. Discord defaults to true.</summary>
+    public bool? required { get; init; }
+
     public ChannelSelect(string customId, IEnumerable<Entities.ChannelType>? channelTypes = null, string? placeholder = null, int? min = null, int? max = null, bool disabled = false, IEnumerable<SelectDefaultValue>? defaultValues = null)
     {
         custom_id = customId;
@@ -216,12 +256,12 @@ public sealed class ChannelSelect : IComponent
     }
 }
 
-// Text input (used inside modal action rows)
+// Text input for modals. Wrap it in a Label and pass null for its own label, which Discord has deprecated.
 public sealed class TextInput : IComponent
 {
     [JsonIgnore] public int type => 4; // text input
     public string custom_id { get; }
-    public string label { get; }
+    public string? label { get; }
     public int style { get; } // 1=short, 2=paragraph
     public int? min_length { get; }
     public int? max_length { get; }
@@ -229,7 +269,7 @@ public sealed class TextInput : IComponent
     public string? value { get; }
     public string? placeholder { get; }
 
-    public TextInput(string customId, string label, int style = 1, int? minLength = null, int? maxLength = null, bool? required = null, string? value = null, string? placeholder = null)
+    public TextInput(string customId, string? label = null, int style = 1, int? minLength = null, int? maxLength = null, bool? required = null, string? value = null, string? placeholder = null)
     {
         custom_id = customId;
         this.label = label;

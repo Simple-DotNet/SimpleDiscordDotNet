@@ -7,8 +7,10 @@ using SimpleDiscordNet.Rest;
 
 namespace SimpleDiscordNet.Commands;
 
-public sealed class InteractionContext
+public sealed partial class InteractionContext
 {
+    private const int EphemeralFlag = 1 << 6;
+
     private readonly RestClient _rest;
     private readonly InteractionCreateEvent _evt;
     private volatile bool _deferred;
@@ -59,7 +61,7 @@ public sealed class InteractionContext
     /// Null if bot is not using sharding.
     /// Example: int? shard = ctx.ShardId;
     /// </summary>
-    public int? ShardId { get; internal set; }
+    public int? ShardId => _evt.ShardId;
 
     // Expose the raw event for maximum flexibility
     public InteractionCreateEvent Event => _evt;
@@ -79,6 +81,23 @@ public sealed class InteractionContext
 
     public string? MessageId => _evt.Component?.MessageId;
     public IReadOnlyList<string> SelectedValues => _evt.Component?.Values ?? Array.Empty<string>();
+
+    /// <summary>
+    /// The permissions the bot has where this interaction happened.
+    /// </summary>
+    public ulong? BotPermissions => _evt.AppPermissions;
+
+    internal RestClient Rest => _rest;
+
+    /// <summary>The named parts of a component ID that matched a pattern such as "vote:{pollId}".</summary>
+    internal Dictionary<string, string>? IdValues { get; init; }
+
+    /// <summary>
+    /// Gets a named part of a component ID, for handlers using a pattern such as "vote:{pollId}".
+    /// Declaring a parameter with the same name is usually simpler.
+    /// Example: string? pollId = ctx.GetIdValue("pollId");
+    /// </summary>
+    public string? GetIdValue(string name) => IdValues?.GetValueOrDefault(name);
 
     internal InteractionContext(RestClient rest, InteractionCreateEvent evt)
     {
@@ -426,7 +445,7 @@ public sealed class InteractionContext
     /// <summary>
     /// Opens a modal in response to an interaction.
     /// This must be the initial response. Do not defer before opening a modal.
-    /// Example: await ctx.OpenModalAsync("modal_id", "Form Title", new ActionRow(new TextInput("input_id", "Label")));
+    /// Example: await ctx.OpenModalAsync("modal_id", "Form Title", default, new ActionRow(new TextInput("input_id", "Label")));
     /// </summary>
     public Task OpenModalAsync(string customId, string title, CancellationToken ct = default, params IComponent[] actionRows)
     {
@@ -444,6 +463,19 @@ public sealed class InteractionContext
             }
         };
         return _rest.PostInteractionCallbackAsync(InteractionId, InteractionToken, modal, ct);
+    }
+
+    /// <summary>
+    /// Opens a modal from a class marked [Modal]. Put [NoDefer] on the handler that calls this,
+    /// because Discord only allows a modal as the first response.
+    /// Example: await ctx.OpenModalAsync&lt;FeedbackForm&gt;();
+    /// </summary>
+    /// <param name="initial">Optional values to pre-fill text boxes and checkboxes with</param>
+    /// <param name="ct">Cancellation token</param>
+    public Task OpenModalAsync<TForm>(TForm? initial = null, CancellationToken ct = default) where TForm : class
+    {
+        ModalFormDefinition form = ModalFormRegistry.Get(typeof(TForm));
+        return OpenModalAsync(form.Id, form.Title, ct, form.BuildComponents(initial));
     }
 
     /// <summary>
@@ -497,6 +529,16 @@ public sealed class InteractionContext
     }
 
     /// <summary>
+    /// Gets an option value as a number from a slash command, including fractional values.
+    /// Returns null if the option doesn't exist.
+    /// Example: double? price = ctx.GetOptionNumber("price");
+    /// </summary>
+    public double? GetOptionNumber(string optionName)
+    {
+        return GetOptionsCache().TryGetValue(optionName, out InteractionOption? opt) ? opt.Number : null;
+    }
+
+    /// <summary>
     /// Gets an option value as a boolean from a slash command.
     /// Returns null if the option doesn't exist.
     /// Example: bool? enabled = ctx.GetOptionBool("enabled");
@@ -528,9 +570,50 @@ public sealed class InteractionContext
     /// </summary>
     public string? GetModalValue(string customId)
     {
-        TextInputValue? input = Modal?.Inputs?.FirstOrDefault(i => i.CustomId.Equals(customId, StringComparison.OrdinalIgnoreCase));
-        return input?.Value;
+        TextInputValue? input = FindModalInput(customId);
+        return input?.Value ?? input?.Values.FirstOrDefault();
     }
+
+    /// <summary>
+    /// Gets every value chosen in a modal field, such as a multi-select or checkbox group.
+    /// Example: string[] areas = ctx.GetModalValues("areas");
+    /// </summary>
+    public string[] GetModalValues(string customId)
+        => FindModalInput(customId)?.Values.ToArray() ?? [];
+
+    /// <summary>
+    /// Returns true if a modal checkbox was ticked.
+    /// Example: bool subscribe = ctx.GetModalBool("subscribe");
+    /// </summary>
+    public bool GetModalBool(string customId)
+        => bool.TryParse(GetModalValue(customId), out bool value) && value;
+
+    /// <summary>
+    /// Gets the ID chosen in a modal user, role or channel picker, or null if none was chosen.
+    /// </summary>
+    public ulong? GetModalId(string customId)
+        => ulong.TryParse(GetModalValue(customId), NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) ? id : null;
+
+    /// <summary>
+    /// Gets every ID chosen in a modal user, role or channel picker.
+    /// </summary>
+    public ulong[] GetModalIds(string customId)
+        => GetModalValues(customId).Select(static id => ulong.Parse(id, NumberStyles.None, CultureInfo.InvariantCulture)).ToArray();
+
+    /// <summary>
+    /// Gets the files uploaded to a modal file field.
+    /// Example: Attachment[] files = ctx.GetModalFiles("screenshots");
+    /// </summary>
+    public Entities.Attachment[] GetModalFiles(string customId)
+    {
+        return GetModalValues(customId)
+            .Select(GetResolvedAttachment)
+            .OfType<Entities.Attachment>()
+            .ToArray();
+    }
+
+    private TextInputValue? FindModalInput(string customId)
+        => Modal?.Inputs?.FirstOrDefault(i => i.CustomId.Equals(customId, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Returns true if this interaction is from a guild (server), false if from DMs.
@@ -550,49 +633,66 @@ public sealed class InteractionContext
     /// </summary>
     public string Username => User?.Username ?? "Unknown";
 
+    // Select menus carry resolved data on the component, commands and context menus on the command
+    private ResolvedData? Resolved => Component?.Resolved ?? Command?.Resolved ?? Modal?.Resolved;
+
     /// <summary>
-    /// Gets all resolved users from a user/mentionable select menu interaction.
+    /// The ID of the user or message a context menu command was used on. Null for other interactions.
+    /// Example: string? targetId = ctx.TargetId;
+    /// </summary>
+    public string? TargetId => Command?.TargetId;
+
+    /// <summary>
+    /// The user a user context menu command was used on. This is not the person who ran the command, which is <see cref="User"/>.
+    /// Example: var target = ctx.TargetUser;
+    /// </summary>
+    public Entities.DiscordUser? TargetUser => TargetId is { } id ? GetResolvedUser(id) : null;
+
+    /// <summary>
+    /// The guild member a user context menu command was used on. Null outside guilds or if the target isn't a member.
+    /// This is not the person who ran the command, which is <see cref="Member"/>.
+    /// Example: var target = ctx.TargetMember;
+    /// </summary>
+    public Entities.DiscordMember? TargetMember => TargetId is { } id ? GetResolvedMember(id) : null;
+
+    /// <summary>
+    /// The message a message context menu command was used on.
+    /// Example: var message = ctx.TargetMessage;
+    /// </summary>
+    public Entities.DiscordMessage? TargetMessage
+        => TargetId is { } id && Resolved?.Messages?.TryGetValue(id, out var message) == true ? message : null;
+
+    /// <summary>
+    /// Gets all resolved users from a command option or a user/mentionable select menu interaction.
     /// Returns empty enumerable if no resolved users.
     /// Example: foreach (var user in ctx.GetResolvedUsers()) { }
     /// </summary>
     public IEnumerable<Entities.DiscordUser> GetResolvedUsers()
-    {
-        if (Component?.Resolved?.Users == null) return Array.Empty<Entities.DiscordUser>();
-        return Component.Resolved.Users.Values;
-    }
+        => Resolved?.Users?.Values ?? (IEnumerable<Entities.DiscordUser>)Array.Empty<Entities.DiscordUser>();
 
     /// <summary>
-    /// Gets all resolved members from a user/mentionable select menu interaction.
+    /// Gets all resolved members from a command option or a user/mentionable select menu interaction.
     /// Returns empty enumerable if no resolved members.
     /// Example: foreach (var member in ctx.GetResolvedMembers()) { }
     /// </summary>
     public IEnumerable<Entities.DiscordMember> GetResolvedMembers()
-    {
-        if (Component?.Resolved?.Members == null) return Array.Empty<Entities.DiscordMember>();
-        return Component.Resolved.Members.Values;
-    }
+        => Resolved?.Members?.Values ?? (IEnumerable<Entities.DiscordMember>)Array.Empty<Entities.DiscordMember>();
 
     /// <summary>
-    /// Gets all resolved roles from a role/mentionable select menu interaction.
+    /// Gets all resolved roles from a command option or a role/mentionable select menu interaction.
     /// Returns empty enumerable if no resolved roles.
     /// Example: foreach (var role in ctx.GetResolvedRoles()) { }
     /// </summary>
     public IEnumerable<Entities.DiscordRole> GetResolvedRoles()
-    {
-        if (Component?.Resolved?.Roles == null) return Array.Empty<Entities.DiscordRole>();
-        return Component.Resolved.Roles.Values;
-    }
+        => Resolved?.Roles?.Values ?? (IEnumerable<Entities.DiscordRole>)Array.Empty<Entities.DiscordRole>();
 
     /// <summary>
-    /// Gets all resolved channels from a channel select menu interaction.
+    /// Gets all resolved channels from a command option or a channel select menu interaction.
     /// Returns empty enumerable if no resolved channels.
     /// Example: foreach (var channel in ctx.GetResolvedChannels()) { }
     /// </summary>
     public IEnumerable<Entities.DiscordChannel> GetResolvedChannels()
-    {
-        if (Component?.Resolved?.Channels == null) return Array.Empty<Entities.DiscordChannel>();
-        return Component.Resolved.Channels.Values;
-    }
+        => Resolved?.Channels?.Values ?? (IEnumerable<Entities.DiscordChannel>)Array.Empty<Entities.DiscordChannel>();
 
     /// <summary>
     /// Gets a resolved user by ID from the interaction.
@@ -600,11 +700,7 @@ public sealed class InteractionContext
     /// Example: var user = ctx.GetResolvedUser("123456789");
     /// </summary>
     public Entities.DiscordUser? GetResolvedUser(string userId)
-    {
-        if (Component?.Resolved?.Users == null) return null;
-        Component.Resolved.Users.TryGetValue(userId, out var user);
-        return user;
-    }
+        => Resolved?.Users?.GetValueOrDefault(userId);
 
     /// <summary>
     /// Gets a resolved member by ID from the interaction.
@@ -612,11 +708,7 @@ public sealed class InteractionContext
     /// Example: var member = ctx.GetResolvedMember("123456789");
     /// </summary>
     public Entities.DiscordMember? GetResolvedMember(string userId)
-    {
-        if (Component?.Resolved?.Members == null) return null;
-        Component.Resolved.Members.TryGetValue(userId, out var member);
-        return member;
-    }
+        => Resolved?.Members?.GetValueOrDefault(userId);
 
     /// <summary>
     /// Gets a resolved role by ID from the interaction.
@@ -624,11 +716,7 @@ public sealed class InteractionContext
     /// Example: var role = ctx.GetResolvedRole("123456789");
     /// </summary>
     public Entities.DiscordRole? GetResolvedRole(string roleId)
-    {
-        if (Component?.Resolved?.Roles == null) return null;
-        Component.Resolved.Roles.TryGetValue(roleId, out var role);
-        return role;
-    }
+        => Resolved?.Roles?.GetValueOrDefault(roleId);
 
     /// <summary>
     /// Gets a resolved channel by ID from the interaction.
@@ -636,11 +724,15 @@ public sealed class InteractionContext
     /// Example: var channel = ctx.GetResolvedChannel("123456789");
     /// </summary>
     public Entities.DiscordChannel? GetResolvedChannel(string channelId)
-    {
-        if (Component?.Resolved?.Channels == null) return null;
-        Component.Resolved.Channels.TryGetValue(channelId, out var channel);
-        return channel;
-    }
+        => Resolved?.Channels?.GetValueOrDefault(channelId);
+
+    /// <summary>
+    /// Gets a resolved attachment by ID from a file option.
+    /// Returns null if the attachment isn't in resolved data.
+    /// Example: var file = ctx.GetResolvedAttachment(attachmentId);
+    /// </summary>
+    public Entities.Attachment? GetResolvedAttachment(string attachmentId)
+        => Resolved?.Attachments?.GetValueOrDefault(attachmentId);
 
     /// <summary>
     /// Gets the component type of the current interaction.
@@ -669,7 +761,8 @@ public sealed class InteractionContext
             components = payload.components,
             attachments = payload.attachments,
             allowed_mentions = payload.allowed_mentions,
-            flags = flags
+            poll = payload.poll,
+            flags = (flags | payload.flags) ?? flags ?? payload.flags
         };
 
     private static InteractionResponseData BuildInteractionData(MessagePayload payload, int? flags)
@@ -679,7 +772,8 @@ public sealed class InteractionContext
             embeds = payload.embeds,
             components = payload.components,
             allowed_mentions = payload.allowed_mentions,
-            flags = flags
+            poll = payload.poll,
+            flags = (flags | payload.flags) ?? flags ?? payload.flags
         };
 
     private Task SendFollowupAsync(WebhookMessageRequest request,

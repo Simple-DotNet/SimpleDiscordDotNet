@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace SimpleDiscordNet.Entities;
 
@@ -8,33 +9,43 @@ public sealed class DiscordUser
     public required string Username { get; init; }
 
     /// <summary>User's 4-digit discriminator (deprecated by Discord, may be 0 for new usernames)</summary>
+    [JsonInclude]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public ushort Discriminator { get; internal set; }
 
     /// <summary>User's display name (new username system)</summary>
+    [JsonInclude]
     public string? Global_Name { get; internal set; }
 
     /// <summary>User's avatar hash</summary>
+    [JsonInclude]
     public string? Avatar { get; internal set; }
 
     /// <summary>Whether the user is a bot</summary>
+    [JsonInclude]
     public bool? Bot { get; internal set; }
 
     /// <summary>Whether the user is an Official Discord System user</summary>
+    [JsonInclude]
     public bool? System { get; internal set; }
 
     /// <summary>User's banner hash</summary>
+    [JsonInclude]
     public string? Banner { get; internal set; }
 
     /// <summary>User's banner color (as integer)</summary>
+    [JsonInclude]
     public int? Accent_Color { get; internal set; }
 
     /// <summary>User's public flags</summary>
+    [JsonInclude]
     public int? Public_Flags { get; internal set; }
 
     /// <summary>
     /// All guilds the bot shares with this user. Useful for checking mutual servers.
     /// Updated when members are cached. Empty array if user not in any cached guilds.
     /// </summary>
+    [JsonIgnore]
     public DiscordGuild[] Guilds { get; internal set; } = [];
 
     /// <summary>
@@ -59,6 +70,14 @@ public sealed class DiscordUser
             : Discriminator % 5;
         return $"https://cdn.discordapp.com/embed/avatars/{index.ToString(CultureInfo.InvariantCulture)}.png";
     }
+
+    /// <summary>
+    /// When this account was created, read from the timestamp inside its ID.
+    /// </summary>
+    [JsonIgnore]
+    public DateTimeOffset CreatedAt => DateTimeOffset.FromUnixTimeMilliseconds((long)(Id >> 22) + DiscordEpochMilliseconds);
+
+    private const long DiscordEpochMilliseconds = 1420070400000;
 
     /// <summary>
     /// Gets the display name to show for this user (global_name if available, otherwise username).

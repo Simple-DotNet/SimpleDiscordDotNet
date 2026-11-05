@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using SimpleDiscordNet.Primitives;
 
 namespace SimpleDiscordNet.Models.Requests;
@@ -81,6 +82,24 @@ internal sealed class ModifyNicknameRequest
     public string nick { get; init; } = string.Empty;
 }
 
+/// <summary>
+/// Discord treats a null <c>channel_id</c> as "disconnect from voice", so it must be sent explicitly.
+/// </summary>
+internal sealed class DisconnectVoiceRequest
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public ulong? channel_id { get; init; }
+}
+
+/// <summary>
+/// Discord treats a null <c>communication_disabled_until</c> as "remove the timeout", so it must be sent explicitly.
+/// </summary>
+internal sealed class ClearTimeoutRequest
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? communication_disabled_until { get; init; }
+}
+
 internal sealed class EmptyPayload
 {
     public static readonly EmptyPayload Instance = new();
@@ -100,7 +119,7 @@ internal sealed class CreateGuildChannelRequest
     public string name { get; init; } = string.Empty;
     public int type { get; init; }
     public string? parent_id { get; init; }
-    public object[]? permission_overwrites { get; init; }
+    public Entities.ChannelPermissionOverwrite[]? permission_overwrites { get; init; }
 }
 
 internal sealed class ModifyChannelRequest
@@ -118,7 +137,8 @@ internal sealed class ModifyChannelRequest
 
 internal sealed class EditMessageRequest
 {
-    public string content { get; init; } = string.Empty;
+    // Null leaves the existing text untouched; an empty string clears it.
+    public string? content { get; init; }
     public Embed[]? embeds { get; init; }
     public IComponent[]? components { get; init; }
     public AttachmentReference[]? attachments { get; init; }

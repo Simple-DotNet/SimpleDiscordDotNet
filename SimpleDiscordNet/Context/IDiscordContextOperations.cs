@@ -23,6 +23,42 @@ public interface IDiscordContextOperations
     Task<DiscordMessage?> SendMessageAsync(ulong channelId, MessageBuilder builder, CancellationToken ct = default);
     Task<DiscordMessage?> SendMessageAsync(DiscordChannel channel, MessageBuilder builder, CancellationToken ct = default);
 
+    /// <summary>Creates a thread without a starting message.</summary>
+    Task<DiscordChannel?> CreateThreadAsync(ulong channelId, string name, bool isPrivate = false, int? autoArchiveMinutes = null, CancellationToken ct = default);
+
+    /// <summary>Starts a thread from a message.</summary>
+    Task<DiscordChannel?> CreateThreadFromMessageAsync(ulong channelId, ulong messageId, string name, int? autoArchiveMinutes = null, CancellationToken ct = default);
+
+    /// <summary>Creates a post in a forum or media channel.</summary>
+    Task<DiscordMessage?> CreateForumPostAsync(ulong channelId, string title, MessageBuilder message, int? autoArchiveMinutes = null, CancellationToken ct = default);
+
+    /// <summary>Gets a channel's archived threads.</summary>
+    Task<IEnumerable<DiscordChannel>> GetArchivedThreadsAsync(ulong channelId, bool isPrivate = false, CancellationToken ct = default);
+
+    /// <summary>Gets a guild's active threads.</summary>
+    Task<IEnumerable<DiscordChannel>> GetActiveThreadsAsync(ulong guildId, CancellationToken ct = default);
+
+    /// <summary>Unpins a message.</summary>
+    Task UnpinMessageAsync(ulong channelId, ulong messageId, CancellationToken ct = default);
+
+    /// <summary>Forwards a message to another channel.</summary>
+    Task<DiscordMessage?> ForwardMessageAsync(ulong toChannelId, ulong fromChannelId, ulong messageId, CancellationToken ct = default);
+
+    /// <summary>Ends a poll early.</summary>
+    Task<DiscordMessage?> EndPollAsync(ulong channelId, ulong messageId, CancellationToken ct = default);
+
+    /// <summary>Gets everyone who voted for a poll answer.</summary>
+    Task<IEnumerable<DiscordUser>> GetPollVotersAsync(ulong channelId, ulong messageId, int answerId, CancellationToken ct = default);
+
+    /// <summary>Finds members whose username or nickname starts with the query.</summary>
+    Task<IEnumerable<DiscordMember>> SearchMembersAsync(ulong guildId, string query, int limit = 100, CancellationToken ct = default);
+
+    /// <summary>Bans up to 200 users at once.</summary>
+    Task<BulkBanResult?> BulkBanAsync(ulong guildId, IEnumerable<ulong> userIds, int? deleteMessageSeconds = null, CancellationToken ct = default, string? reason = null);
+
+    /// <summary>Searches a guild's messages.</summary>
+    Task<IEnumerable<DiscordMessage>> SearchMessagesAsync(ulong guildId, string content, int limit = 25, CancellationToken ct = default);
+
     /// <summary>
     /// Sends a message with a single file attachment to the specified channel.
     /// </summary>
@@ -99,13 +135,13 @@ public interface IDiscordContextOperations
     /// <summary>
     /// Kicks a member from the guild.
     /// </summary>
-    Task KickMemberAsync(string guildId, string userId, CancellationToken ct = default);
-    Task KickMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default);
+    Task KickMemberAsync(string guildId, string userId, CancellationToken ct = default, string? reason = null);
+    Task KickMemberAsync(ulong guildId, ulong userId, CancellationToken ct = default, string? reason = null);
 
     /// <summary>
     /// Bans a user from the guild.
     /// </summary>
-    Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays = null, CancellationToken ct = default);
+    Task BanMemberAsync(string guildId, string userId, int? deleteMessageDays = null, CancellationToken ct = default, string? reason = null);
 
     /// <summary>
     /// Sends a direct message to a user by creating a DM channel and sending a message.
@@ -131,7 +167,7 @@ public interface IDiscordContextOperations
     /// <summary>
     /// Creates a new channel in a guild.
     /// </summary>
-    Task<DiscordChannel?> CreateChannelAsync(ulong guildId, string name, ChannelType type, string? parentId = null, object[]? permissionOverwrites = null, CancellationToken ct = default);
+    Task<DiscordChannel?> CreateChannelAsync(ulong guildId, string name, ChannelType type, string? parentId = null, ChannelPermissionOverwrite[]? permissionOverwrites = null, CancellationToken ct = default);
 
     /// <summary>
     /// Deletes a channel.
