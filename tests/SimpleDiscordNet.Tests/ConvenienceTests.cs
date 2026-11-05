@@ -156,6 +156,28 @@ public sealed class ConvenienceCommands
 
     [OnMemberLeft]
     public void Broken(MemberEvent e) => throw new InvalidOperationException("event failed");
+
+    [OnChannelCreated]
+    public void ChannelMade(ChannelEvent e) => Captured = [e.Channel.Name];
+
+    [OnGuildRemoved]
+    public void GuildGone(string guildId) => Captured = [guildId];
+
+    [OnDisconnected]
+    public void Dropped(Exception? reason) => Captured = [reason?.Message];
+
+    [OnPollVoteAdded]
+    [OnPollVoteRemoved]
+    public void Voted() => Runs += 1000;
+
+    public static int ErrorRuns { get; set; }
+
+    [OnError]
+    public void OnErrorEvent(Exception ex)
+    {
+        ErrorRuns++;
+        throw new InvalidOperationException("the error handler failed too");
+    }
 }
 
 public static class ErrorCommands
@@ -664,6 +686,70 @@ public class ConvenienceTests : IDisposable
         {
             DiscordEvents.Error -= OnError;
         }
+    }
+
+    [Fact]
+    public void Every_shortcut_attribute_is_named_after_its_event()
+    {
+        // The source generator works out the event from the attribute's name, so these have to match
+        Type[] shortcuts = typeof(OnEventAttribute).Assembly.GetExportedTypes()
+            .Where(t => t.IsSubclassOf(typeof(OnEventAttribute)))
+            .ToArray();
+
+        Assert.True(shortcuts.Length > 40);
+        foreach (Type shortcut in shortcuts)
+        {
+            OnEventAttribute attribute = (OnEventAttribute)Activator.CreateInstance(shortcut)!;
+            string expected = attribute.EventName == nameof(DiscordEvents.DirectMessageReceived)
+                ? "OnDirectMessageAttribute"
+                : $"On{attribute.EventName}Attribute";
+
+            Assert.Equal(expected, shortcut.Name);
+        }
+    }
+
+    [Fact]
+    public async Task Shortcuts_pass_along_event_data()
+    {
+        DiscordEvents.RaiseChannelCreated(null, new ChannelEvent
+        {
+            Channel = new DiscordChannel { Id = 1, Name = "general", Type = 0 },
+            Guild = new DiscordGuild { Id = 2, Name = "g" }
+        });
+
+        await WaitForAsync(() => ConvenienceCommands.Captured is ["general"]);
+    }
+
+    [Fact]
+    public async Task Shortcuts_work_with_events_that_send_a_string()
+    {
+        DiscordEvents.RaiseGuildRemoved(null, "123");
+
+        await WaitForAsync(() => ConvenienceCommands.Captured is ["123"]);
+    }
+
+    [Fact]
+    public async Task One_method_can_handle_several_events()
+    {
+        PollVoteAddedEvent vote = new() { ChannelId = 1, MessageId = 2, UserId = 3, AnswerId = 4 };
+        PollVoteRemovedEvent unvote = new() { ChannelId = 1, MessageId = 2, UserId = 3, AnswerId = 4 };
+
+        DiscordEvents.RaisePollVoteAdded(null, vote);
+        DiscordEvents.RaisePollVoteRemoved(null, unvote);
+
+        await WaitForAsync(() => ConvenienceCommands.Runs >= 2000);
+    }
+
+    [Fact]
+    public async Task A_failing_error_handler_doesnt_loop()
+    {
+        ConvenienceCommands.ErrorRuns = 0;
+
+        DiscordEvents.RaiseError(null, new InvalidOperationException("boom"));
+
+        await WaitForAsync(() => ConvenienceCommands.ErrorRuns >= 1);
+        await Task.Delay(100);
+        Assert.Equal(1, ConvenienceCommands.ErrorRuns);
     }
 
     [Fact]

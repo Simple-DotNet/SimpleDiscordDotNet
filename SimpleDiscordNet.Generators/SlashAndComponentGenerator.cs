@@ -991,7 +991,8 @@ public sealed class SlashAndComponentGenerator : IIncrementalGenerator
         string target = handler.IsStatic ? handler.ContainingType : $"__InstHolder_{SanitizeId(handler.ContainingType)}.Value";
         string call = $"{target}.{handler.MethodName}({(handler.EventTakesData ? "_e" : string.Empty)})";
         const string events = "global::SimpleDiscordNet.Commands.GeneratedEvents";
-        return $"{events}.Subscribe(static () => global::SimpleDiscordNet.Events.DiscordEvents.{eventName} += (_, _e) => {events}.Run(async () => {{ {CallCode(handler, call, allowReply: false)} }}));";
+        string run = eventName == "Error" ? "RunErrorHandler" : "Run";
+        return $"{events}.Subscribe(static () => global::SimpleDiscordNet.Events.DiscordEvents.{eventName} += (_, _e) => {events}.{run}(async () => {{ {CallCode(handler, call, allowReply: false)} }}));";
     }
 
     private static string ErrorHandlerCode(Candidate handler)

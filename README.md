@@ -148,7 +148,7 @@ A large release: new attribute-based features, plus reliability fixes across the
 - **Return a reply** - Handlers can return a string, `EmbedBuilder` or `MessageBuilder`, or a `Task` of one.
 - **Data in component IDs** - `[ButtonHandler("vote:{pollId}:{choice}")]` binds parts of the ID to parameters.
 - **Questions and pages** - `ctx.ConfirmAsync()`, `ctx.ChooseAsync()` and `ctx.PaginateAsync()`.
-- **Event attributes** - `[OnMemberJoined]`, `[OnMessageCreated]` and others, plus `[OnEvent]` for any event.
+- **Event attributes** - Over 40 attributes such as `[OnMemberJoined]`, `[OnMessageCreated]`, `[OnBanAdded]` and `[OnVoiceStateUpdated]`, plus `[OnEvent]` for the rarer ones.
 - **Services in handlers** - Handler classes can take services through their constructors, with `WithServices`.
 - **Error handling and help** - `[OnCommandError]` for all failures, and `[assembly: GenerateHelp]` for a help command.
 - **Compile errors** - Library diagnostics now point at the file and line.

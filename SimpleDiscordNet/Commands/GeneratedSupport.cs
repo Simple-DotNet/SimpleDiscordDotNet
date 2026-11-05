@@ -64,18 +64,28 @@ public static class GeneratedEvents
     /// Starts a handler off the gateway's receive loop, so a slow one can't stall the connection.
     /// Exceptions are raised through DiscordEvents.Error.
     /// </summary>
-    public static void Run(Func<ValueTask> handler) => _ = RunCoreAsync(handler);
+    public static void Run(Func<ValueTask> handler) => _ = RunCoreAsync(handler, reportErrors: true);
 
-    private static async Task RunCoreAsync(Func<ValueTask> handler)
+    /// <summary>
+    /// Starts an [OnError] handler. If it fails, the failure isn't raised through DiscordEvents.Error,
+    /// because that would run the same handler again and loop forever.
+    /// </summary>
+    public static void RunErrorHandler(Func<ValueTask> handler) => _ = RunCoreAsync(handler, reportErrors: false);
+
+    private static async Task RunCoreAsync(Func<ValueTask> handler, bool reportErrors)
     {
         await Task.Yield();
         try
         {
             await handler().ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (reportErrors)
         {
             DiscordEvents.RaiseError(null, ex);
+        }
+        catch (Exception)
+        {
+            // Nowhere safe to report this
         }
     }
 }
