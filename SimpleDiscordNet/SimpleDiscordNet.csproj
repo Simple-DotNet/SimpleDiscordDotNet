@@ -15,15 +15,15 @@
         <PackageId>SimpleDiscordDotNet</PackageId>
         <Title>SimpleDiscordNet</Title>
         <Authors>SimpleDiscordNet Contributors</Authors>
-        <Description>A tiny, dependency-free Discord bot SDK for .NET 10 with bucket-aware rate limiting, slash commands, components, modals, and Native AOT support.
+        <Description>A friendly, dependency-free Discord bot SDK for .NET 10. Build bots with plain C# methods and attributes: slash commands, checks and cooldowns, buttons, forms, polls, threads and events. Works with Native AOT.
         Join our community on Discord: https://discord.gg/2KrUPCgh</Description>
-        <PackageTags>discord;bot;api;gateway;rest;slash-commands;discord-bot;aot;native-aot;trimming;rate-limiting</PackageTags>
+        <PackageTags>discord;bot;api;gateway;rest;slash-commands;discord-bot;modals;polls;source-generator;aot;native-aot;trimming;rate-limiting</PackageTags>
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageProjectUrl>https://simpledotnet.com/projects/simple-discord-dotnet/</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Simple-DotNet/SimpleDiscordDotNet</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageReleaseNotes>v1.11.0: Adds attribute modals, polls, threads and forum posts, layout messages (Components V2), command translation, DM and user-install attributes, message forwarding, member and message search, bulk bans and application emojis. Fixes entity parsing, DM and uncached-channel messages, gateway reconnect and resume, per-resource rate limits, command parameters and context menu commands. Sharding reworked: cluster traffic is now authenticated, so upgrade all nodes together. Distributed sharding is experimental. Includes behavior changes, so re-sync your commands and read the upgrade notes: https://github.com/Simple-DotNet/SimpleDiscordDotNet#v1110</PackageReleaseNotes>
+        <PackageReleaseNotes>v1.11.0: New attributes for checks and cooldowns, forms, events, command translation, and where commands work. Adds enum options, replying by returning a value, data in component IDs, confirmations and pagination, constructor injection, a generated help command, polls, threads and forum posts, layout messages (Components V2), message forwarding, member and message search, bulk bans and application emojis. Fixes entity parsing, DM and uncached-channel messages, gateway reconnect and resume, per-resource rate limits, command parameters and context menu commands. Sharding reworked: cluster traffic is now authenticated, so upgrade all nodes together. Distributed sharding is experimental. Includes behavior changes, so re-sync your commands and read the upgrade notes: https://github.com/Simple-DotNet/SimpleDiscordDotNet#v1110</PackageReleaseNotes>
 
         <!-- AOT compatibility -->
         <IsAotCompatible>true</IsAotCompatible>
